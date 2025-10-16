@@ -1,9 +1,39 @@
-// src/pages/Login.jsx
 import React, { useState, useEffect, Component } from "react";
 import { motion } from "framer-motion";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
+
+class ErrorBoundary extends Component {
+  state = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Three.js Error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="text-center text-red-500 p-4">
+          <p>Error rendering 3D background: {this.state.error.message}</p>
+          <p>
+            Please try refreshing the page or check your browser's WebGL support
+            at{" "}
+            <a href="https://get.webgl.org" className="underline">
+              get.webgl.org
+            </a>
+            .
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Create a grid of tiles for the fret/meander pattern
 const FretPattern = () => {
@@ -89,8 +119,8 @@ const Wainscoting = () => {
 const ArchitecturalScene = () => {
   return (
     <>
-      <ambientLight intensity={0.3} />
-      <pointLight position={[10, 10, 10]} intensity={0.7} />
+      <ambientLight intensity={0.3} color="#FFFFFF" />
+      <pointLight position={[10, 10, 10]} intensity={0.7} color="#FFFFFF" />
       <FretPattern />
       <BlueprintGrid />
       <Wainscoting />
@@ -112,29 +142,6 @@ const ArchitecturalScene = () => {
   );
 };
 
-class ErrorBoundary extends Component {
-  state = { hasError: false, error: null };
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="text-center text-red-500 p-4">
-          <p>Error rendering 3D background: {this.state.error.message}</p>
-          <p>
-            Please try refreshing the page or check your browser's WebGL
-            support.
-          </p>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
 const Login = () => {
   const [activeTab, setActiveTab] = useState("email-tab");
   const [formData, setFormData] = useState({
@@ -146,6 +153,11 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [alert, setAlert] = useState({ show: false, message: "", type: "" });
   const [showPassword, setShowPassword] = useState(false);
+
+  // Backend URL configuration
+  const BACKEND_URL =
+    import.meta.env.VITE_BACKEND_URL || "http://localhost:3005";
+  console.log("BACKEND_URL:", BACKEND_URL);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -226,9 +238,10 @@ const Login = () => {
     }
     setIsLoading(true);
     try {
-      const response = await fetch("/login", {
+      const response = await fetch(`${BACKEND_URL}/api/users/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           email: formData.email.trim().toLowerCase(),
           password: formData.password,
@@ -252,8 +265,8 @@ const Login = () => {
   };
 
   const handleSocialLogin = (provider) => {
-    window.location.href = `/api/auth/${provider}?redirectUrl=${encodeURIComponent(
-      window.location.href
+    window.location.href = `${BACKEND_URL}/api/auth/${provider}?redirectUrl=${encodeURIComponent(
+      window.location.origin + "/login"
     )}`;
   };
 
@@ -262,7 +275,10 @@ const Login = () => {
       {/* Three.js Background */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
         <ErrorBoundary>
-          <Canvas camera={{ position: [0, 2, 10], fov: 60 }}>
+          <Canvas
+            camera={{ position: [0, 2, 10], fov: 60 }}
+            gl={{ clearColor: "#0A0A1E" }}
+          >
             <ArchitecturalScene />
           </Canvas>
         </ErrorBoundary>
@@ -278,7 +294,7 @@ const Login = () => {
       <div className="fixed inset-0 bg-black bg-opacity-20 z-0"></div>
 
       <motion.div
-        className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl backdrop-blur-sm"
+        className="bg-white/90 rounded-2xl p-8 max-w-md w-full shadow-2xl backdrop-blur-xl z-10 border border-blue-500/50"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
@@ -308,8 +324,8 @@ const Login = () => {
           <motion.div
             className={`flex items-center gap-2.5 p-3 rounded-xl mb-5 ${
               alert.type === "success"
-                ? "bg-green-100 text-green-700 border border-green-300"
-                : "bg-red-100 text-red-700 border border-red-300"
+                ? "bg-green-100 text-green-800 border border-green-300"
+                : "bg-red-100 text-red-800 border border-red-300"
             }`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}

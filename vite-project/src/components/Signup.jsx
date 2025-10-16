@@ -1,10 +1,9 @@
-// src/pages/Signup.jsx
 import React, { useState, useEffect, Component } from "react";
 import { motion } from "framer-motion";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
-import "./Signup.css";
+import "./Signup.css"; // Change to "./Pages/Signup.css" if in src/pages/Pages/
 
 class ErrorBoundary extends Component {
   state = { hasError: false, error: null };
@@ -37,7 +36,68 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Three.js Scene Component with Spiral Pattern, Golden Electricity Flow, and Lightning Flashes
+// StarField Component for Shiny Stars
+const StarField = () => {
+  const starsRef = React.useRef();
+  const numStars = 500; // Number of stars
+  const positions = new Float32Array(numStars * 3);
+  const opacities = new Float32Array(numStars);
+
+  // Generate random star positions in a sphere
+  for (let i = 0; i < numStars; i++) {
+    const theta = Math.random() * 2 * Math.PI;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = 50 * Math.cbrt(Math.random()); // Cube root for even distribution
+    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i * 3 + 2] = r * Math.cos(phi);
+    opacities[i] = 0.5 + Math.random() * 0.5; // Base opacity 0.5-1.0
+  }
+
+  // Debug star count
+  console.log("Stars Generated:", numStars);
+
+  // Twinkle effect
+  useFrame(({ clock }) => {
+    if (starsRef.current) {
+      const attributes = starsRef.current.geometry.attributes;
+      for (let i = 0; i < numStars; i++) {
+        attributes.opacity.array[i] =
+          0.5 + 0.5 * Math.sin(clock.getElapsedTime() * 2 + i);
+      }
+      attributes.opacity.needsUpdate = true;
+    }
+  });
+
+  return (
+    <points ref={starsRef}>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          array={positions}
+          itemSize={3}
+          count={numStars}
+        />
+        <bufferAttribute
+          attach="attributes-opacity"
+          array={opacities}
+          itemSize={1}
+          count={numStars}
+        />
+      </bufferGeometry>
+      <pointsMaterial
+        color="#FFFFFF"
+        size={0.05}
+        transparent
+        opacity={1.0}
+        vertexColors={false}
+        depthWrite={false}
+      />
+    </points>
+  );
+};
+
+// Three.js Scene Component with Spiral, Silver Electricity, Lightning, and Stars
 const ArchitecturalScene = () => {
   const spiralMaterial = new THREE.LineBasicMaterial({
     color: "#00FFFF",
@@ -47,10 +107,9 @@ const ArchitecturalScene = () => {
   });
 
   const electricityMaterial = new THREE.MeshBasicMaterial({
-    color: "#FFD700", // Shiny gold
-    transparent: true,
-    opacity: 1.0,
-    blending: THREE.AdditiveBlending,
+    color: "#F5F5F5", // Ultra shiny silver
+    transparent: false,
+    blending: THREE.NormalBlending,
   });
 
   const lightningGroup = React.useRef();
@@ -87,18 +146,18 @@ const ArchitecturalScene = () => {
 
   // Create electricity particles
   const particles = [];
-  const numParticles = 10; // Reduced for performance
+  const numParticles = 10; // 10 per spiral
   for (let i = 0; i < numParticles; i++) {
     // Outward flow
     particles.push({
       theta: (i / numParticles) * maxTheta,
-      direction: 0.04, // Faster for dynamic flow
+      direction: 0.04,
       isFirstSpiral: true,
     });
     // Inward flow
     particles.push({
       theta: (1 - i / numParticles) * maxTheta,
-      direction: -0.04, // Faster for dynamic flow
+      direction: -0.04,
       isFirstSpiral: false,
     });
   }
@@ -111,6 +170,11 @@ const ArchitecturalScene = () => {
     spiralPoints2.length
   );
   console.log("Particles:", particles.length);
+  console.log("Electricity Material:", {
+    color: "#F5F5F5",
+    transparent: false,
+    blending: "NormalBlending",
+  });
 
   // Animate electricity particles
   useFrame(({ clock }) => {
@@ -122,19 +186,19 @@ const ArchitecturalScene = () => {
         if (data.theta > maxTheta) data.theta = 0;
         if (data.theta < 0) data.theta = maxTheta;
         const r = a * Math.exp(b * data.theta);
-        const offset = Math.sin(clock.getElapsedTime() * 3 + index) * 0.1; // Increased oscillation
+        const offset = Math.sin(clock.getElapsedTime() * 3 + index) * 0.1;
         if (data.isFirstSpiral) {
           particle.position.set(
             r * Math.cos(data.theta),
             r * Math.sin(data.theta) + offset,
-            0.1
+            0.3
           );
         } else {
           const r2 = a * Math.exp(b * (maxTheta - data.theta));
           particle.position.set(
             r2 * Math.cos(data.theta + Math.PI),
             r2 * Math.sin(data.theta + Math.PI) + offset,
-            0.1
+            0.3
           );
         }
         console.log(`Particle ${index}:`, particle.position);
@@ -151,13 +215,15 @@ const ArchitecturalScene = () => {
 
   return (
     <>
-      <ambientLight intensity={0.4} color="#00FFFF" />
+      <ambientLight intensity={0.3} color="#00FFFF" />{" "}
+      {/* Reduced for darker scene */}
+      <StarField />
       <line geometry={spiralGeometry} material={spiralMaterial} />
       <line geometry={spiralGeometry2} material={spiralMaterial} />
       <group ref={particlesRef}>
         {particles.map((particle, i) => (
-          <mesh key={i} position={[0, 0, 0.1]}>
-            <sphereGeometry args={[0.08, 16, 16]} /> {/* Larger particles */}
+          <mesh key={i} position={[0, 0, 0.3]}>
+            <sphereGeometry args={[0.15, 16, 16]} />
             <meshBasicMaterial {...electricityMaterial} />
           </mesh>
         ))}
@@ -205,6 +271,11 @@ const Signup = () => {
     text: "",
     width: "0%",
   });
+
+  // Backend URL configuration
+  const BACKEND_URL =
+    import.meta.env.VITE_BACKEND_URL || "http://localhost:3005";
+  console.log("BACKEND_URL:", BACKEND_URL);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -277,8 +348,19 @@ const Signup = () => {
     if (name === "password") {
       checkPasswordStrength(value);
     }
-    if (name === "confirmPassword" || name === "password") {
+    // Validate confirmPassword whenever password or confirmPassword changes
+    if (name === "password" || name === "confirmPassword") {
       if (
+        formData.confirmPassword &&
+        value &&
+        formData.password !== value &&
+        name === "confirmPassword"
+      ) {
+        setErrors((prev) => ({
+          ...prev,
+          confirmPassword: "Passwords do not match",
+        }));
+      } else if (
         formData.password &&
         formData.confirmPassword &&
         formData.password !== formData.confirmPassword
@@ -287,7 +369,7 @@ const Signup = () => {
           ...prev,
           confirmPassword: "Passwords do not match",
         }));
-      } else if (errors.confirmPassword === "Passwords do not match") {
+      } else {
         setErrors((prev) => ({ ...prev, confirmPassword: "" }));
       }
     }
@@ -327,7 +409,9 @@ const Signup = () => {
 
   const handleSocialLogin = async (provider) => {
     try {
-      window.location.href = `/api/auth/${provider}`;
+      window.location.href = `${BACKEND_URL}/api/auth/${provider}?redirectUrl=${encodeURIComponent(
+        window.location.origin + "/signup"
+      )}`;
     } catch (error) {
       console.error(`${provider} auth error:`, error);
       showAlert(`Failed to connect to ${provider}. Please try again.`, "error");
@@ -345,8 +429,12 @@ const Signup = () => {
     if (!formData.password || formData.password.length < 8) {
       newErrors.password = "Password must be at least 8 characters";
     }
-    if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = "Passwords do not match";
+    if (
+      !formData.confirmPassword ||
+      formData.password !== formData.confirmPassword
+    ) {
+      newErrors.confirmPassword =
+        "Passwords do not match or confirm password is empty";
     }
     if (!formData.role) {
       newErrors.role = "Please select a role";
@@ -368,9 +456,10 @@ const Signup = () => {
     }
     setIsLoading(true);
     try {
-      const response = await fetch("/signup/email", {
+      const response = await fetch(`${BACKEND_URL}/api/users/signup/email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(formData),
       });
       const result = await response.json();
@@ -417,7 +506,10 @@ const Signup = () => {
       {/* Three.js Background */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
         <ErrorBoundary>
-          <Canvas camera={{ position: [0, 0, 25], fov: 60 }}>
+          <Canvas
+            camera={{ position: [0, 0, 20], fov: 60 }}
+            gl={{ clearColor: "#0A0A1E" }}
+          >
             <ArchitecturalScene />
           </Canvas>
         </ErrorBoundary>
@@ -454,7 +546,7 @@ const Signup = () => {
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.6 }}
-        className="bg-white/85 rounded-2xl p-8 max-w-md w-full shadow-2xl backdrop-blur-lg z-10 border border-cyan-500/50"
+        className="bg-white/90 rounded-2xl p-8 max-w-md w-full shadow-2xl backdrop-blur-xl z-10 border border-cyan-500/50"
       >
         {/* Header */}
         <motion.div
