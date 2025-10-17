@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
-import "./Signup.css"; // Change to "./Pages/Signup.css" if in src/pages/Pages/
+import "./Signup.css";
 
 class ErrorBoundary extends Component {
   state = { hasError: false, error: null };
@@ -36,28 +36,22 @@ class ErrorBoundary extends Component {
   }
 }
 
-// StarField Component for Shiny Stars
 const StarField = () => {
   const starsRef = React.useRef();
-  const numStars = 500; // Number of stars
+  const numStars = 500;
   const positions = new Float32Array(numStars * 3);
   const opacities = new Float32Array(numStars);
 
-  // Generate random star positions in a sphere
   for (let i = 0; i < numStars; i++) {
     const theta = Math.random() * 2 * Math.PI;
     const phi = Math.acos(2 * Math.random() - 1);
-    const r = 50 * Math.cbrt(Math.random()); // Cube root for even distribution
+    const r = 50 * Math.cbrt(Math.random());
     positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
     positions[i * 3 + 2] = r * Math.cos(phi);
-    opacities[i] = 0.5 + Math.random() * 0.5; // Base opacity 0.5-1.0
+    opacities[i] = 0.5 + Math.random() * 0.5;
   }
 
-  // Debug star count
-  console.log("Stars Generated:", numStars);
-
-  // Twinkle effect
   useFrame(({ clock }) => {
     if (starsRef.current) {
       const attributes = starsRef.current.geometry.attributes;
@@ -97,7 +91,6 @@ const StarField = () => {
   );
 };
 
-// Three.js Scene Component with Spiral, Silver Electricity, Lightning, and Stars
 const ArchitecturalScene = () => {
   const spiralMaterial = new THREE.LineBasicMaterial({
     color: "#00FFFF",
@@ -107,7 +100,7 @@ const ArchitecturalScene = () => {
   });
 
   const electricityMaterial = new THREE.MeshBasicMaterial({
-    color: "#F5F5F5", // Ultra shiny silver
+    color: "#F5F5F5",
     transparent: false,
     blending: THREE.NormalBlending,
   });
@@ -115,11 +108,10 @@ const ArchitecturalScene = () => {
   const lightningGroup = React.useRef();
   const particlesRef = React.useRef();
 
-  // Create logarithmic spiral
   const spiralPoints = [];
-  const a = 0.3; // Spiral scale
-  const b = 0.2; // Spiral tightness
-  const maxTheta = 8 * Math.PI; // 4 rotations
+  const a = 0.3;
+  const b = 0.2;
+  const maxTheta = 8 * Math.PI;
   for (let theta = 0; theta <= maxTheta; theta += 0.1) {
     const r = a * Math.exp(b * theta);
     spiralPoints.push(
@@ -128,7 +120,6 @@ const ArchitecturalScene = () => {
   }
   const spiralGeometry = new THREE.BufferGeometry().setFromPoints(spiralPoints);
 
-  // Create second spiral (rotated for inward flow)
   const spiralPoints2 = [];
   for (let theta = 0; theta <= maxTheta; theta += 0.1) {
     const r = a * Math.exp(b * (maxTheta - theta));
@@ -144,17 +135,14 @@ const ArchitecturalScene = () => {
     spiralPoints2
   );
 
-  // Create electricity particles
   const particles = [];
-  const numParticles = 10; // 10 per spiral
+  const numParticles = 10;
   for (let i = 0; i < numParticles; i++) {
-    // Outward flow
     particles.push({
       theta: (i / numParticles) * maxTheta,
       direction: 0.04,
       isFirstSpiral: true,
     });
-    // Inward flow
     particles.push({
       theta: (1 - i / numParticles) * maxTheta,
       direction: -0.04,
@@ -162,24 +150,8 @@ const ArchitecturalScene = () => {
     });
   }
 
-  // Debug spiral and particles
-  console.log(
-    "Spiral Points:",
-    spiralPoints.length,
-    "Second Spiral Points:",
-    spiralPoints2.length
-  );
-  console.log("Particles:", particles.length);
-  console.log("Electricity Material:", {
-    color: "#F5F5F5",
-    transparent: false,
-    blending: "NormalBlending",
-  });
-
-  // Animate electricity particles
   useFrame(({ clock }) => {
     if (particlesRef.current) {
-      console.log("ParticlesRef Active:", particlesRef.current.children.length);
       particlesRef.current.children.forEach((particle, index) => {
         const data = particles[index];
         data.theta += data.direction;
@@ -201,10 +173,7 @@ const ArchitecturalScene = () => {
             0.3
           );
         }
-        console.log(`Particle ${index}:`, particle.position);
       });
-    } else {
-      console.warn("ParticlesRef not assigned");
     }
     if (lightningGroup.current) {
       lightningGroup.current.children.forEach((light) => {
@@ -215,8 +184,7 @@ const ArchitecturalScene = () => {
 
   return (
     <>
-      <ambientLight intensity={0.3} color="#00FFFF" />{" "}
-      {/* Reduced for darker scene */}
+      <ambientLight intensity={0.3} color="#00FFFF" />
       <StarField />
       <line geometry={spiralGeometry} material={spiralMaterial} />
       <line geometry={spiralGeometry2} material={spiralMaterial} />
@@ -249,7 +217,8 @@ const ArchitecturalScene = () => {
   );
 };
 
-const Signup = () => {
+// ONLY ONE Signup component declaration
+const SignupComponent = () => {
   const [activeTab, setActiveTab] = useState("email-tab");
   const [formData, setFormData] = useState({
     name: "",
@@ -272,10 +241,8 @@ const Signup = () => {
     width: "0%",
   });
 
-  // Backend URL configuration
   const BACKEND_URL =
     import.meta.env.VITE_BACKEND_URL || "http://localhost:3005";
-  console.log("BACKEND_URL:", BACKEND_URL);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -283,7 +250,6 @@ const Signup = () => {
     const message = urlParams.get("message");
 
     if (error) {
-      console.error("OAuth error:", { error, message });
       const errorMessage = message
         ? decodeURIComponent(message)
         : getErrorMessage(error);
@@ -338,33 +304,40 @@ const Signup = () => {
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
+    const newValue = type === "checkbox" ? checked : value;
+
     setFormData((prev) => ({
       ...prev,
-      [name]: type === "checkbox" ? checked : value,
+      [name]: newValue,
     }));
+
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
     }
+
     if (name === "password") {
-      checkPasswordStrength(value);
+      checkPasswordStrength(newValue);
     }
-    // Validate confirmPassword whenever password or confirmPassword changes
+
     if (name === "password" || name === "confirmPassword") {
-      if (
-        formData.confirmPassword &&
-        value &&
-        formData.password !== value &&
-        name === "confirmPassword"
-      ) {
-        setErrors((prev) => ({
-          ...prev,
-          confirmPassword: "Passwords do not match",
-        }));
-      } else if (
-        formData.password &&
-        formData.confirmPassword &&
-        formData.password !== formData.confirmPassword
-      ) {
+      validateConfirmPassword(name, newValue);
+    }
+  };
+
+  const validateConfirmPassword = (changedField, newValue) => {
+    const { password, confirmPassword } = formData;
+
+    let currentPassword = password;
+    let currentConfirmPassword = confirmPassword;
+
+    if (changedField === "password") {
+      currentPassword = newValue;
+    } else if (changedField === "confirmPassword") {
+      currentConfirmPassword = newValue;
+    }
+
+    if (currentPassword && currentConfirmPassword) {
+      if (currentPassword !== currentConfirmPassword) {
         setErrors((prev) => ({
           ...prev,
           confirmPassword: "Passwords do not match",
@@ -372,6 +345,8 @@ const Signup = () => {
       } else {
         setErrors((prev) => ({ ...prev, confirmPassword: "" }));
       }
+    } else if (changedField === "confirmPassword" && !currentConfirmPassword) {
+      setErrors((prev) => ({ ...prev, confirmPassword: "" }));
     }
   };
 
@@ -420,31 +395,37 @@ const Signup = () => {
 
   const validateForm = () => {
     const newErrors = {};
+
     if (!formData.name.trim() || formData.name.trim().length < 2) {
       newErrors.name = "Name must be at least 2 characters";
     }
+
     if (!formData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = "Invalid email address";
     }
+
     if (!formData.password || formData.password.length < 8) {
       newErrors.password = "Password must be at least 8 characters";
     }
-    if (
-      !formData.confirmPassword ||
-      formData.password !== formData.confirmPassword
-    ) {
-      newErrors.confirmPassword =
-        "Passwords do not match or confirm password is empty";
+
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = "Please confirm your password";
+    } else if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = "Passwords do not match";
     }
+
     if (!formData.role) {
       newErrors.role = "Please select a role";
     }
+
     if (!formData.terms) {
       newErrors.terms = "You must agree to the terms";
     }
+
     if (formData.role === "client" && !formData.mailingAddress.trim()) {
       newErrors.mailingAddress = "Mailing address is required for clients";
     }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -466,7 +447,7 @@ const Signup = () => {
       if (response.ok) {
         showAlert("Account created successfully! Redirecting...", "success");
         setTimeout(() => {
-          window.location.href = result.redirectUrl || "/client-page";
+          window.location.href = result.redirectUrl || "/client";
         }, 1500);
       } else {
         handleSignupError(result);
@@ -495,7 +476,7 @@ const Signup = () => {
     } else if (message.includes("mailing")) {
       setErrors((prev) => ({ ...prev, mailingAddress: message }));
     } else {
-      setErrors((prev) => ({ ...prev, email: message }));
+      showAlert(message, "error");
     }
   };
 
@@ -503,7 +484,6 @@ const Signup = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-8">
-      {/* Three.js Background */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
         <ErrorBoundary>
           <Canvas
@@ -515,7 +495,6 @@ const Signup = () => {
         </ErrorBoundary>
       </div>
 
-      {/* Alert Messages */}
       {alert.show && (
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -548,7 +527,6 @@ const Signup = () => {
         transition={{ duration: 0.6 }}
         className="bg-white/90 rounded-2xl p-8 max-w-md w-full shadow-2xl backdrop-blur-xl z-10 border border-cyan-500/50"
       >
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -564,7 +542,6 @@ const Signup = () => {
           </p>
         </motion.div>
 
-        {/* Tab Buttons */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -593,7 +570,6 @@ const Signup = () => {
           </button>
         </motion.div>
 
-        {/* Email Signup Tab */}
         {activeTab === "email-tab" && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -602,7 +578,6 @@ const Signup = () => {
             className="space-y-5"
           >
             <form className="space-y-5" onSubmit={handleEmailSignup}>
-              {/* Full Name */}
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -635,7 +610,6 @@ const Signup = () => {
                 )}
               </motion.div>
 
-              {/* Email */}
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -670,7 +644,6 @@ const Signup = () => {
                 )}
               </motion.div>
 
-              {/* Password */}
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -741,7 +714,6 @@ const Signup = () => {
                 )}
               </motion.div>
 
-              {/* Confirm Password */}
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -789,7 +761,6 @@ const Signup = () => {
                 )}
               </motion.div>
 
-              {/* Role Selection */}
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -826,7 +797,6 @@ const Signup = () => {
                 )}
               </motion.div>
 
-              {/* Mailing Address (Conditional) */}
               {isMailingAddressRequired && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
@@ -861,7 +831,6 @@ const Signup = () => {
                 </motion.div>
               )}
 
-              {/* Terms and Conditions */}
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -923,7 +892,6 @@ const Signup = () => {
                 </div>
               </motion.div>
 
-              {/* Submit Button */}
               <motion.button
                 type="submit"
                 disabled={isLoading}
@@ -951,7 +919,6 @@ const Signup = () => {
           </motion.div>
         )}
 
-        {/* Social Signup Tab */}
         {activeTab === "social-tab" && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -980,7 +947,6 @@ const Signup = () => {
           </motion.div>
         )}
 
-        {/* Footer */}
         <motion.div
           className="text-center mt-6 pt-6 border-t border-gray-200"
           initial={{ opacity: 0, y: 20 }}
@@ -1002,4 +968,5 @@ const Signup = () => {
   );
 };
 
-export default Signup;
+// ONLY ONE export statement
+export default SignupComponent;
