@@ -1,4 +1,4 @@
-// routes/auth.js
+// auth.js (updated)
 module.exports = function (passport) {
   const express = require("express");
   const router = express.Router();
@@ -8,7 +8,7 @@ module.exports = function (passport) {
     "/google",
     (req, res, next) => {
       console.log("Google OAuth initiated");
-      const redirectUrl = req.query.redirectUrl || "http://localhost:3000";
+      const redirectUrl = req.query.redirectUrl || "http://localhost:5173";
       req.session.redirectUrl = redirectUrl;
       next();
     },
@@ -20,21 +20,17 @@ module.exports = function (passport) {
   router.get(
     "/google/callback",
     passport.authenticate("google", {
-      failureRedirect: "http://localhost:3000/signup?error=auth_failed",
+      failureRedirect: "http://localhost:5173/login?error=auth_failed",
     }),
     (req, res) => {
       console.log("Google OAuth successful, redirecting user");
       const user = req.user;
-      const redirectUrl = req.session.redirectUrl || "http://localhost:3000";
-
-      // Determine final redirect URL based on role
-      const finalRedirectUrl =
-        user.role === "admin"
-          ? `${redirectUrl}/admin`
-          : user.role === "salesAgent"
-          ? `${redirectUrl}/sales`
-          : `${redirectUrl}/client`;
-
+      const redirectUrl = req.session.redirectUrl || "http://localhost:5173";
+      const baseUrl = redirectUrl.endsWith("/")
+        ? redirectUrl
+        : `${redirectUrl}/`;
+      // Social logins always redirect to /client
+      const finalRedirectUrl = `${baseUrl}client?token=${user.id}`;
       console.log(`Redirecting ${user.role} to: ${finalRedirectUrl}`);
       res.redirect(finalRedirectUrl);
     }
@@ -45,7 +41,7 @@ module.exports = function (passport) {
     "/facebook",
     (req, res, next) => {
       console.log("Facebook OAuth initiated");
-      const redirectUrl = req.query.redirectUrl || "http://localhost:3000";
+      const redirectUrl = req.query.redirectUrl || "http://localhost:5173";
       req.session.redirectUrl = redirectUrl;
       next();
     },
@@ -57,20 +53,17 @@ module.exports = function (passport) {
   router.get(
     "/facebook/callback",
     passport.authenticate("facebook", {
-      failureRedirect: "http://localhost:3000/signup?error=auth_failed",
+      failureRedirect: "http://localhost:5173/login?error=auth_failed",
     }),
     (req, res) => {
       console.log("Facebook OAuth successful, redirecting user");
       const user = req.user;
-      const redirectUrl = req.session.redirectUrl || "http://localhost:3000";
-
-      const finalRedirectUrl =
-        user.role === "admin"
-          ? `${redirectUrl}/admin`
-          : user.role === "salesAgent"
-          ? `${redirectUrl}/sales`
-          : `${redirectUrl}/client`;
-
+      const redirectUrl = req.session.redirectUrl || "http://localhost:5173";
+      const baseUrl = redirectUrl.endsWith("/")
+        ? redirectUrl
+        : `${redirectUrl}/`;
+      // Social logins always redirect to /client
+      const finalRedirectUrl = `${baseUrl}client?token=${user.id}`;
       console.log(`Redirecting ${user.role} to: ${finalRedirectUrl}`);
       res.redirect(finalRedirectUrl);
     }

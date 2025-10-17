@@ -1,3 +1,4 @@
+// login.jsx (updated)
 import React, { useState, useEffect, Component } from "react";
 import { motion } from "framer-motion";
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -263,13 +264,11 @@ const Login = () => {
       setIsLoading(false);
     }
   };
-
+  //Update Social Login
   const handleSocialLogin = (provider) => {
-    window.location.href = `${BACKEND_URL}/api/auth/${provider}?redirectUrl=${encodeURIComponent(
-      window.location.origin + "/login"
-    )}`;
+    const redirectUrl = encodeURIComponent(`${window.location.origin}`);
+    window.location.href = `${BACKEND_URL}/api/auth/${provider}?redirectUrl=${redirectUrl}`;
   };
-
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-8 bg-fixed bg-cover bg-center relative">
       {/* Three.js Background */}

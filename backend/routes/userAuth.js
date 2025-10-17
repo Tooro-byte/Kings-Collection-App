@@ -1,4 +1,4 @@
-// routes/userAuth.js
+// userAuth.js (updated)
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
@@ -24,6 +24,17 @@ const loginSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().required(),
 });
+
+// Token verification middleware (optional, if needed for API calls)
+const verifyToken = (req, res, next) => {
+  const token = req.headers.authorization?.split("Bearer ")[1];
+  if (!token) {
+    return res.status(401).json({ message: "No token provided" });
+  }
+  // Add token verification logic here (e.g., JWT or check against user ID in DB)
+  // For now, assume session-based auth via passport
+  next();
+};
 
 // Email signup
 router.post("/signup/email", async (req, res) => {
@@ -94,6 +105,7 @@ router.post("/signup/email", async (req, res) => {
       res.status(201).json({
         redirectUrl,
         message: "Account created successfully",
+        token: user.id, // Include token for frontend
       });
     });
   } catch (error) {
@@ -102,7 +114,7 @@ router.post("/signup/email", async (req, res) => {
   }
 });
 
-// Login route for Pug templates
+// Login route for JSON API
 router.post("/login", (req, res, next) => {
   const { error } = loginSchema.validate(req.body);
   if (error) {
@@ -140,6 +152,7 @@ router.post("/login", (req, res, next) => {
       res.json({
         redirectUrl,
         message: "Login successful",
+        token: user.id,
       });
     });
   })(req, res, next);
@@ -181,7 +194,7 @@ router.post("/login-form", (req, res, next) => {
           ? "/sales"
           : "/client";
 
-      res.redirect(redirectUrl);
+      res.redirect(`http://localhost:5173${redirectUrl}`);
     });
   })(req, res, next);
 });
@@ -197,9 +210,8 @@ router.post("/logout", (req, res) => {
 });
 
 // Get current user
-router.get("/me", (req, res) => {
+router.get("/me", verifyToken, (req, res) => {
   if (req.isAuthenticated()) {
-    // Remove password hash from response
     const { password_hash, ...userWithoutPassword } = req.user;
     res.json({ user: userWithoutPassword });
   } else {

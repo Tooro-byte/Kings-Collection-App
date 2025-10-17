@@ -17,16 +17,17 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME || "kings_collection",
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
 });
 
 // Test database connection
-pool.getConnection()
-  .then(connection => {
+pool
+  .getConnection()
+  .then((connection) => {
     console.log("✅ MySQL Database connected successfully");
     connection.release();
   })
-  .catch(error => {
+  .catch((error) => {
     console.error("❌ Database connection failed:", error.message);
   });
 
@@ -34,43 +35,55 @@ pool.getConnection()
 app.locals.pool = pool;
 
 // Session configuration - UPDATED to use .env secret
-const sessionStore = new MySQLStore({
-  expiration: 86400000,
-  createDatabaseTable: true,
-  schema: {
-    tableName: 'sessions',
-    columnNames: {
-      session_id: 'session_id',
-      expires: 'expires',
-      data: 'data'
-    }
-  }
-}, pool);
+const sessionStore = new MySQLStore(
+  {
+    expiration: 86400000,
+    createDatabaseTable: true,
+    schema: {
+      tableName: "sessions",
+      columnNames: {
+        session_id: "session_id",
+        expires: "expires",
+        data: "data",
+      },
+    },
+  },
+  pool
+);
 
-app.use(session({
-  secret: process.env.SESSION_SECRET || process.env.JWT_SECRET || "your-secret-key",
-  resave: false,
-  saveUninitialized: false,
-  store: sessionStore,
-  cookie: {
-    secure: false, // set to true if using HTTPS
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    httpOnly: true,
-    sameSite: 'lax'
-  }
-}));
+app.use(
+  session({
+    secret:
+      process.env.SESSION_SECRET || process.env.JWT_SECRET || "your-secret-key",
+    resave: false,
+    saveUninitialized: false,
+    store: sessionStore,
+    cookie: {
+      secure: false, // set to true if using HTTPS
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      httpOnly: true,
+      sameSite: "lax",
+    },
+  })
+);
 
 // CORS configuration - FIXED: Removed problematic options route
-app.use(cors({
-  origin: ["http://localhost:3000", "http://localhost:5173", "http://localhost:3005"],
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
-}));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "http://localhost:3005",
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  })
+);
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Static files
 app.use(express.static(path.join(__dirname, "public")));
@@ -98,55 +111,55 @@ app.use("/api/users", userAuthRoutes);
 app.get("/login", (req, res) => {
   res.render("login", {
     message: req.query.error,
-    success: req.query.success
+    success: req.query.success,
   });
 });
 
 app.get("/signup", (req, res) => {
   res.render("signup", {
     message: req.query.error,
-    success: req.query.success
+    success: req.query.success,
   });
 });
 
 // Health check route
 app.get("/health", (req, res) => {
-  res.json({ 
-    status: "OK", 
+  res.json({
+    status: "OK",
     timestamp: new Date().toISOString(),
-    database: "Connected"
+    database: "Connected",
   });
 });
 
 // Home route
 app.get("/", (req, res) => {
-  res.json({ 
-    message: "Kings Collection API", 
+  res.json({
+    message: "Kings Collection API",
     version: "1.0.0",
     endpoints: {
       auth: "/api/auth",
       users: "/api/users",
       login: "/login",
-      signup: "/signup"
-    }
+      signup: "/signup",
+    },
   });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error("Error:", err);
-  res.status(500).json({ 
+  res.status(500).json({
     message: "Internal server error",
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    error: process.env.NODE_ENV === "development" ? err.message : undefined,
   });
 });
 
 // 404 handler - FIXED: Use specific path instead of wildcard
 app.use((req, res, next) => {
-  res.status(404).json({ 
+  res.status(404).json({
     message: "Route not found",
     path: req.path,
-    method: req.method
+    method: req.method,
   });
 });
 
@@ -154,7 +167,6 @@ const PORT = process.env.PORT || 3005;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📍 Frontend URLs:`);
-  console.log(`   - http://localhost:3000 (React)`);
   console.log(`   - http://localhost:5173 (Vite)`);
   console.log(`📍 Backend API: http://localhost:${PORT}`);
   console.log(`📍 Login page: http://localhost:${PORT}/login`);

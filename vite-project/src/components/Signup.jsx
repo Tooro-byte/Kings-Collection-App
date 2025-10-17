@@ -1,3 +1,4 @@
+// signup.jsx (updated)
 import React, { useState, useEffect, Component } from "react";
 import { motion } from "framer-motion";
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -382,11 +383,12 @@ const SignupComponent = () => {
     });
   };
 
+  // update the handleSocialLogin function:
   const handleSocialLogin = async (provider) => {
     try {
-      window.location.href = `${BACKEND_URL}/api/auth/${provider}?redirectUrl=${encodeURIComponent(
-        window.location.origin + "/signup"
-      )}`;
+      // Redirect to the client dashboard after social login
+      const redirectUrl = encodeURIComponent(`${window.location.origin}`);
+      window.location.href = `${BACKEND_URL}/api/auth/${provider}?redirectUrl=${redirectUrl}`;
     } catch (error) {
       console.error(`${provider} auth error:`, error);
       showAlert(`Failed to connect to ${provider}. Please try again.`, "error");
