@@ -1,4 +1,3 @@
-// signup.jsx (updated)
 import React, { useState, useEffect, Component } from "react";
 import { motion } from "framer-motion";
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -218,7 +217,6 @@ const ArchitecturalScene = () => {
   );
 };
 
-// ONLY ONE Signup component declaration
 const SignupComponent = () => {
   const [activeTab, setActiveTab] = useState("email-tab");
   const [formData, setFormData] = useState({
@@ -249,6 +247,12 @@ const SignupComponent = () => {
     const urlParams = new URLSearchParams(window.location.search);
     const error = urlParams.get("error");
     const message = urlParams.get("message");
+    const token = urlParams.get("token");
+
+    if (token) {
+      // Verify token with backend
+      verifyToken(token);
+    }
 
     if (error) {
       const errorMessage = message
@@ -265,6 +269,33 @@ const SignupComponent = () => {
     }
   }, []);
 
+  const verifyToken = async (token) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/users/verify-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ token }),
+      });
+      const result = await response.json();
+      if (response.ok) {
+        console.log("Token verified, user:", result.user);
+        // Optionally store user data in localStorage or context
+        showAlert("Logged in successfully!", "success");
+      } else {
+        console.error("Token verification failed:", result.message);
+        showAlert("Authentication failed. Please try again.", "error");
+        window.history.replaceState({}, document.title, "/signup");
+      }
+    } catch (error) {
+      console.error("Token verification error:", error);
+      showAlert(
+        "Network error during authentication. Please try again.",
+        "error"
+      );
+    }
+  };
+
   const getErrorMessage = (error) => {
     const errorMessages = {
       facebook_access_denied:
@@ -278,6 +309,7 @@ const SignupComponent = () => {
       server_error: "Server error during authentication. Please try again.",
       database_error: "Database error occurred. Please try again.",
       network_error: "Network error: Please check your internet and try again.",
+      invalid_token: "Invalid or expired token. Please try again.",
     };
     return (
       errorMessages[error] ||
@@ -383,11 +415,12 @@ const SignupComponent = () => {
     });
   };
 
-  // update the handleSocialLogin function:
   const handleSocialLogin = async (provider) => {
     try {
-      // Redirect to the client dashboard after social login
-      const redirectUrl = encodeURIComponent(`${window.location.origin}`);
+      const redirectUrl = encodeURIComponent(
+        `${window.location.origin}/signup`
+      );
+      console.log(`Initiating ${provider} login with redirect: ${redirectUrl}`);
       window.location.href = `${BACKEND_URL}/api/auth/${provider}?redirectUrl=${redirectUrl}`;
     } catch (error) {
       console.error(`${provider} auth error:`, error);
@@ -970,5 +1003,4 @@ const SignupComponent = () => {
   );
 };
 
-// ONLY ONE export statement
 export default SignupComponent;

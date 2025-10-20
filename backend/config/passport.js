@@ -1,11 +1,12 @@
-// passport.js (updated)
 const passport = require("passport");
 const LocalStrategy = require("passport-local").Strategy;
 const GoogleStrategy = require("passport-google-oauth2").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy;
-const bcrypt = require("bcryptjs");
 
-module.exports = function (pool) {
+module.exports = function (sequelize) {
+  const User = require("../models/userModel")(sequelize);
+
+  // LocalStrategy for email/password login
   passport.use(
     new LocalStrategy(
       {
@@ -14,30 +15,28 @@ module.exports = function (pool) {
       },
       async (email, password, done) => {
         try {
-          const [users] = await pool.execute(
-            "SELECT * FROM users WHERE email = ? AND is_active = true",
-            [email.toLowerCase()]
-          );
-
-          if (users.length === 0) {
+          console.log("LocalStrategy: Attempting login for email:", email);
+          const user = await User.findOne({
+            where: { email: email.toLowerCase() },
+          });
+          if (!user) {
+            console.log("LocalStrategy: User not found for email:", email);
             return done(null, false, { message: "Invalid email or password" });
           }
-
-          const user = users[0];
-          const isMatch = await bcrypt.compare(password, user.password_hash);
-
-          if (!isMatch) {
+          const isValidPassword = await user.verifyPassword(password);
+          if (!isValidPassword) {
+            console.log("LocalStrategy: Invalid password for email:", email);
             return done(null, false, { message: "Invalid email or password" });
           }
-
-          await pool.execute(
-            "UPDATE users SET last_login = NOW() WHERE id = ?",
-            [user.id]
-          );
-
+          if (!user.isActive) {
+            console.log("LocalStrategy: User is inactive, ID:", user.id);
+            return done(null, false, { message: "Account is inactive" });
+          }
+          console.log("LocalStrategy: Login successful, ID:", user.id);
+          await user.update({ lastLogin: new Date() });
           return done(null, user);
         } catch (error) {
-          console.error("Local strategy error:", error);
+          console.error("LocalStrategy error:", error.message, error.stack);
           return done(error);
         }
       }
@@ -53,48 +52,33 @@ module.exports = function (pool) {
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
-          console.log("Google profile:", profile);
-          const email = profile.emails?.[0]?.value?.toLowerCase();
-
-          if (!email) {
+          console.log(
+            "GoogleStrategy: Profile received:",
+            JSON.stringify(profile, null, 2)
+          );
+          const user = await User.findOrCreateSocialUser(profile, "google");
+          if (!user) {
+            console.log(
+              "GoogleStrategy: Failed to find or create user for profile ID:",
+              profile.id
+            );
             return done(null, false, {
-              message: "No email provided by Google",
+              message: "Failed to process Google login",
             });
           }
-
-          const [users] = await pool.execute(
-            "SELECT * FROM users WHERE email = ? OR google_id = ?",
-            [email, profile.id]
+          console.log(
+            "GoogleStrategy: User processed, ID:",
+            user.id,
+            "Email:",
+            user.email
           );
-
-          if (users.length > 0) {
-            console.log("Linking Google to existing user:", email);
-            await pool.execute(
-              "UPDATE users SET google_id = ?, role = 'client', last_login = NOW() WHERE id = ?",
-              [profile.id, users[0].id]
-            );
-            const [updatedUsers] = await pool.execute(
-              "SELECT * FROM users WHERE id = ?",
-              [users[0].id]
-            );
-            return done(null, updatedUsers[0]);
-          }
-
-          const [result] = await pool.execute(
-            `INSERT INTO users (name, email, google_id, role, is_active, last_login)
-             VALUES (?, ?, ?, 'client', true, NOW())`,
-            [profile.displayName || "Google User", email, profile.id]
-          );
-
-          const [newUsers] = await pool.execute(
-            "SELECT * FROM users WHERE id = ?",
-            [result.insertId]
-          );
-
-          return done(null, newUsers[0]);
+          await user.update({ lastLogin: new Date() });
+          return done(null, user);
         } catch (error) {
-          console.error("Google strategy error:", error);
-          return done(error);
+          console.error("GoogleStrategy error:", error.message, error.stack);
+          return done(null, false, {
+            message: "Failed to process Google login: Database error",
+          });
         }
       }
     )
@@ -110,63 +94,58 @@ module.exports = function (pool) {
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
-          console.log("Facebook profile:", profile);
-          const email =
-            profile.emails?.[0]?.value?.toLowerCase() ||
-            `facebook_${profile.id}@placeholder.local`;
-
-          const [users] = await pool.execute(
-            "SELECT * FROM users WHERE email = ? OR facebook_id = ?",
-            [email, profile.id]
+          console.log(
+            "FacebookStrategy: Profile received:",
+            JSON.stringify(profile, null, 2)
           );
-
-          if (users.length > 0) {
-            console.log("Linking Facebook to existing user:", email);
-            await pool.execute(
-              "UPDATE users SET facebook_id = ?, role = 'client', last_login = NOW() WHERE id = ?",
-              [profile.id, users[0].id]
+          const user = await User.findOrCreateSocialUser(profile, "facebook");
+          if (!user) {
+            console.log(
+              "FacebookStrategy: Failed to find or create user for profile ID:",
+              profile.id
             );
-            const [updatedUsers] = await pool.execute(
-              "SELECT * FROM users WHERE id = ?",
-              [users[0].id]
-            );
-            return done(null, updatedUsers[0]);
+            return done(null, false, {
+              message: "Failed to process Facebook login",
+            });
           }
-
-          const [result] = await pool.execute(
-            `INSERT INTO users (name, email, facebook_id, role, is_active, last_login)
-             VALUES (?, ?, ?, 'client', true, NOW())`,
-            [profile.displayName || "Facebook User", email, profile.id]
+          console.log(
+            "FacebookStrategy: User processed, ID:",
+            user.id,
+            "Email:",
+            user.email
           );
-
-          const [newUsers] = await pool.execute(
-            "SELECT * FROM users WHERE id = ?",
-            [result.insertId]
-          );
-
-          return done(null, newUsers[0]);
+          await user.update({ lastLogin: new Date() });
+          return done(null, user);
         } catch (error) {
-          console.error("Facebook strategy error:", error);
-          return done(error);
+          console.error("FacebookStrategy error:", error.message, error.stack);
+          return done(null, false, {
+            message: "Failed to process Facebook login: Database error",
+          });
         }
       }
     )
   );
 
   passport.serializeUser((user, done) => {
+    console.log("Serializing user, ID:", user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id, done) => {
     try {
-      const [users] = await pool.execute(
-        "SELECT * FROM users WHERE id = ? AND is_active = true",
-        [id]
-      );
-      done(null, users[0] || null);
+      console.log("Deserializing user, ID:", id);
+      const user = await User.findOne({
+        where: { id, isActive: true },
+      });
+      if (!user) {
+        console.log("Deserialize: User not found or inactive, ID:", id);
+        return done(null, false);
+      }
+      console.log("Deserialize: User found, ID:", user.id, "Name:", user.name);
+      done(null, user);
     } catch (error) {
-      console.error("Deserialize error:", error);
-      done(error);
+      console.error("Deserialize error:", error.message, error.stack);
+      done(null, false);
     }
   });
 
