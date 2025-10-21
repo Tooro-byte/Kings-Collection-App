@@ -33,11 +33,34 @@ const UpdateProduct = () => {
   const [categoryPreview, setCategoryPreview] = useState("");
   const [productPreviews, setProductPreviews] = useState([]);
 
-  // Retry fetch with exponential backoff
-  const fetchWithRetry = async (url, options, retries = 3, delay = 1000) => {
+  // API base URL
+  const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:3005";
+
+  // Configure axios defaults
+  useEffect(() => {
+    axios.defaults.withCredentials = true;
+    axios.defaults.baseURL = API_BASE_URL;
+  }, []);
+
+  // Enhanced fetch with retry
+  const fetchWithRetry = async (
+    url,
+    options = {},
+    retries = 3,
+    delay = 1000
+  ) => {
     for (let i = 0; i < retries; i++) {
       try {
-        const response = await fetch(url, options);
+        const response = await fetch(`${API_BASE_URL}${url}`, {
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...options.headers,
+          },
+          ...options,
+        });
+
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
           throw new Error(data.message || `HTTP ${response.status}`);
@@ -69,25 +92,26 @@ const UpdateProduct = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const instance = axios.create({ timeout: 5000 });
+
         const [categoriesRes, productsRes] = await Promise.all([
-          instance.get("/api/categories"),
-          instance.get("/api/products"),
+          axios.get("/api/categories"),
+          axios.get("/api/products"),
         ]);
 
         // Handle categories data
-        if (
-          categoriesRes.data &&
-          Array.isArray(categoriesRes.data.categories)
-        ) {
-          setCategories(categoriesRes.data.categories);
+        if (categoriesRes.data && Array.isArray(categoriesRes.data)) {
+          setCategories(categoriesRes.data);
         } else {
           console.warn("Categories data is invalid or empty");
           setCategories([]);
         }
 
         // Handle products data
-        if (productsRes.data && Array.isArray(productsRes.data.products)) {
+        if (
+          productsRes.data &&
+          productsRes.data.success &&
+          Array.isArray(productsRes.data.products)
+        ) {
           setProducts(productsRes.data.products);
         } else {
           console.warn("Products data is invalid or empty");
@@ -95,7 +119,7 @@ const UpdateProduct = () => {
         }
       } catch (error) {
         console.error("Error fetching data:", error);
-        showToast("error", "Failed to load data");
+        showToast("error", "Failed to load data: " + error.message);
       } finally {
         setLoading(false);
       }
@@ -123,30 +147,42 @@ const UpdateProduct = () => {
 
       try {
         setLoading(true);
-        const response = await axios.get(`/api/products/${selectedProductId}`);
+        const response = await axios.get(
+          `/api/update-product/${selectedProductId}`
+        );
 
-        if (response.data && response.data.product) {
+        if (response.data && response.data.success && response.data.product) {
           const productData = response.data.product;
           setProduct({
             title: productData.title || "",
             description: productData.description || "",
-            category: productData.category_id || "",
+            category: productData.category || productData.category_id || "",
             price: productData.price || "",
-            stockId: productData.stock_id || "",
+            stockId: productData.stockId || productData.stock_id || "",
             images: productData.images || [],
           });
-          setProductPreviews(productData.images || []);
+
+          // Set image previews
+          if (productData.images && Array.isArray(productData.images)) {
+            setProductPreviews(
+              productData.images.map((img) =>
+                img.startsWith("http") ? img : `${API_BASE_URL}${img}`
+              )
+            );
+          } else {
+            setProductPreviews([]);
+          }
         }
       } catch (error) {
         console.error("Error fetching product data:", error);
-        showToast("error", "Failed to load product data");
+        showToast("error", "Failed to load product data: " + error.message);
       } finally {
         setLoading(false);
       }
     };
 
     fetchProductData();
-  }, [selectedProductId, showToast]);
+  }, [selectedProductId, showToast, API_BASE_URL]);
 
   // Fetch category data when category is selected
   useEffect(() => {
@@ -164,27 +200,37 @@ const UpdateProduct = () => {
       try {
         setLoading(true);
         const response = await axios.get(
-          `/update-category/${selectedCategoryId}`
+          `/api/update-category/${selectedCategoryId}`
         );
 
-        if (response.data && response.data.category) {
+        if (response.data && response.data.success && response.data.category) {
           const categoryData = response.data.category;
           setCategory({
             name: categoryData.name || "",
             image: null, // We don't set the file object for existing image
           });
-          setCategoryPreview(categoryData.image || "");
+
+          // Set category preview
+          if (categoryData.image) {
+            setCategoryPreview(
+              categoryData.image.startsWith("http")
+                ? categoryData.image
+                : `${API_BASE_URL}${categoryData.image}`
+            );
+          } else {
+            setCategoryPreview("");
+          }
         }
       } catch (error) {
         console.error("Error fetching category data:", error);
-        showToast("error", "Failed to load category data");
+        showToast("error", "Failed to load category data: " + error.message);
       } finally {
         setLoading(false);
       }
     };
 
     fetchCategoryData();
-  }, [selectedCategoryId, showToast]);
+  }, [selectedCategoryId, showToast, API_BASE_URL]);
 
   // Handle product form changes
   const handleProductChange = (e) => {
@@ -251,9 +297,8 @@ const UpdateProduct = () => {
     if (imageUrl) {
       if (window.confirm("Are you sure you want to remove this image?")) {
         try {
-          const response = await fetchWithRetry("/remove-image", {
+          const response = await fetchWithRetry("/api/remove-image", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ imageUrl }),
           });
 
@@ -270,7 +315,7 @@ const UpdateProduct = () => {
           }
         } catch (error) {
           console.error("Network error removing image:", error);
-          showToast("error", "Network error removing image");
+          showToast("error", "Network error removing image: " + error.message);
         }
       }
     } else {
@@ -301,14 +346,15 @@ const UpdateProduct = () => {
       formData.append("price", product.price);
       formData.append("stockId", product.stockId);
 
-      product.images.forEach((image, index) => {
+      // Append only new image files
+      product.images.forEach((image) => {
         if (image instanceof File) {
           formData.append("images", image);
         }
       });
 
       const response = await fetchWithRetry(
-        `/update-product/${selectedProductId}`,
+        `/api/update-product/${selectedProductId}`,
         {
           method: "POST",
           body: formData,
@@ -316,7 +362,9 @@ const UpdateProduct = () => {
       );
 
       if (response.ok) {
+        const data = await response.json();
         showToast("success", "Product updated successfully");
+
         setRecentUpdates((prev) => [
           {
             id: Date.now(),
@@ -331,19 +379,32 @@ const UpdateProduct = () => {
 
         // Refresh products list
         const productsRes = await axios.get("/api/products");
-        if (productsRes.data && Array.isArray(productsRes.data.products)) {
+        if (
+          productsRes.data &&
+          productsRes.data.success &&
+          Array.isArray(productsRes.data.products)
+        ) {
           setProducts(productsRes.data.products);
         }
 
         // Reset form
         setSelectedProductId("");
+        setProduct({
+          title: "",
+          description: "",
+          category: "",
+          price: "",
+          stockId: "",
+          images: [],
+        });
+        setProductPreviews([]);
       } else {
         const data = await response.json().catch(() => ({}));
         showToast("error", data.message || "Failed to update product");
       }
     } catch (error) {
       console.error("Error updating product:", error);
-      showToast("error", "Network error updating product");
+      showToast("error", "Network error updating product: " + error.message);
     } finally {
       setSubmitting(false);
     }
@@ -368,7 +429,7 @@ const UpdateProduct = () => {
       }
 
       const response = await fetchWithRetry(
-        `/update-category/${selectedCategoryId}`,
+        `/api/update-category/${selectedCategoryId}`,
         {
           method: "POST",
           body: formData,
@@ -376,7 +437,9 @@ const UpdateProduct = () => {
       );
 
       if (response.ok) {
+        const data = await response.json();
         showToast("success", "Category updated successfully");
+
         setRecentUpdates((prev) => [
           {
             id: Date.now(),
@@ -390,22 +453,24 @@ const UpdateProduct = () => {
 
         // Refresh categories list
         const categoriesRes = await axios.get("/api/categories");
-        if (
-          categoriesRes.data &&
-          Array.isArray(categoriesRes.data.categories)
-        ) {
-          setCategories(categoriesRes.data.categories);
+        if (categoriesRes.data && Array.isArray(categoriesRes.data)) {
+          setCategories(categoriesRes.data);
         }
 
         // Reset form
         setSelectedCategoryId("");
+        setCategory({
+          name: "",
+          image: null,
+        });
+        setCategoryPreview("");
       } else {
         const data = await response.json().catch(() => ({}));
         showToast("error", data.message || "Failed to update category");
       }
     } catch (error) {
       console.error("Error updating category:", error);
-      showToast("error", "Network error updating category");
+      showToast("error", "Network error updating category: " + error.message);
     } finally {
       setSubmitting(false);
     }
@@ -418,13 +483,16 @@ const UpdateProduct = () => {
       return;
     }
 
-    if (window.confirm("Are you sure you want to delete this product?")) {
+    if (
+      window.confirm(
+        "Are you sure you want to delete this product? This action cannot be undone."
+      )
+    ) {
       try {
         const response = await fetchWithRetry(
-          `/delete-product/${selectedProductId}`,
+          `/api/delete-product/${selectedProductId}`,
           {
             method: "DELETE",
-            headers: { "Content-Type": "application/json" },
           }
         );
 
@@ -433,19 +501,32 @@ const UpdateProduct = () => {
 
           // Refresh products list
           const productsRes = await axios.get("/api/products");
-          if (productsRes.data && Array.isArray(productsRes.data.products)) {
+          if (
+            productsRes.data &&
+            productsRes.data.success &&
+            Array.isArray(productsRes.data.products)
+          ) {
             setProducts(productsRes.data.products);
           }
 
           // Reset form
           setSelectedProductId("");
+          setProduct({
+            title: "",
+            description: "",
+            category: "",
+            price: "",
+            stockId: "",
+            images: [],
+          });
+          setProductPreviews([]);
         } else {
           const data = await response.json().catch(() => ({}));
           showToast("error", data.message || "Failed to delete product");
         }
       } catch (error) {
         console.error("Error deleting product:", error);
-        showToast("error", "Network error deleting product");
+        showToast("error", "Network error deleting product: " + error.message);
       }
     }
   };
@@ -459,20 +540,25 @@ const UpdateProduct = () => {
 
     if (
       window.confirm(
-        "Are you sure you want to delete this category? All products in this category will also be deleted."
+        "Are you sure you want to delete this category? All products in this category will also be deleted. This action cannot be undone."
       )
     ) {
       try {
         const response = await fetchWithRetry(
-          `/delete-category/${selectedCategoryId}`,
+          `/api/delete-category/${selectedCategoryId}`,
           {
             method: "DELETE",
-            headers: { "Content-Type": "application/json" },
           }
         );
 
         if (response.ok) {
-          showToast("success", "Category deleted successfully");
+          const data = await response.json();
+          showToast(
+            "success",
+            `Category deleted successfully. ${
+              data.deletedProducts || 0
+            } products were also deleted.`
+          );
 
           // Refresh categories and products lists
           const [categoriesRes, productsRes] = await Promise.all([
@@ -480,27 +566,40 @@ const UpdateProduct = () => {
             axios.get("/api/products"),
           ]);
 
-          if (
-            categoriesRes.data &&
-            Array.isArray(categoriesRes.data.categories)
-          ) {
-            setCategories(categoriesRes.data.categories);
+          if (categoriesRes.data && Array.isArray(categoriesRes.data)) {
+            setCategories(categoriesRes.data);
           }
-          if (productsRes.data && Array.isArray(productsRes.data.products)) {
+          if (
+            productsRes.data &&
+            productsRes.data.success &&
+            Array.isArray(productsRes.data.products)
+          ) {
             setProducts(productsRes.data.products);
           }
 
           // Reset form
           setSelectedCategoryId("");
+          setCategory({
+            name: "",
+            image: null,
+          });
+          setCategoryPreview("");
         } else {
           const data = await response.json().catch(() => ({}));
           showToast("error", data.message || "Failed to delete category");
         }
       } catch (error) {
         console.error("Error deleting category:", error);
-        showToast("error", "Network error deleting category");
+        showToast("error", "Network error deleting category: " + error.message);
       }
     }
+  };
+
+  // Helper function to get full image URL
+  const getFullImageUrl = (imagePath) => {
+    if (!imagePath) return "/Images/placeholder.png";
+    if (imagePath.startsWith("http")) return imagePath;
+    return `${API_BASE_URL}${imagePath}`;
   };
 
   if (loading) {
@@ -589,7 +688,8 @@ const UpdateProduct = () => {
               <option value="">Choose a product to update...</option>
               {products.map((prod) => (
                 <option key={prod.id} value={prod.id}>
-                  {prod.title} - UGX {parseFloat(prod.price).toFixed(2)}
+                  {prod.title} - UGX{" "}
+                  {parseFloat(prod.price || 0).toLocaleString()}
                 </option>
               ))}
             </select>
@@ -670,13 +770,13 @@ const UpdateProduct = () => {
 
               <div>
                 <label className="block text-sm font-semibold text-gray-800 mb-2">
-                  Category Icon
+                  Category Image
                 </label>
                 <div className="relative p-6 border-2 border-dashed border-blue-300/50 rounded-2xl bg-blue-50/50 hover:border-blue-400 transition-all duration-300">
                   <input
                     type="file"
                     onChange={handleCategoryImage}
-                    accept="image/jpeg,image/png,image/gif"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     disabled={!selectedCategoryId}
                   />
@@ -684,8 +784,11 @@ const UpdateProduct = () => {
                     <i className="fas fa-cloud-upload-alt text-2xl text-blue-500 mb-2"></i>
                     <p className="text-blue-600 font-medium">
                       {selectedCategoryId
-                        ? "Click to upload new category icon"
+                        ? "Click to upload new category image"
                         : "Select a category first"}
+                    </p>
+                    <p className="text-blue-400 text-sm mt-1">
+                      Recommended: 500x500px, Max 5MB
                     </p>
                   </div>
                   {categoryPreview && (
@@ -704,7 +807,7 @@ const UpdateProduct = () => {
                 <button
                   type="submit"
                   disabled={submitting || !selectedCategoryId}
-                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50"
+                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <i className="fas fa-save"></i>
                   <span>{submitting ? "Saving..." : "Save Changes"}</span>
@@ -712,8 +815,8 @@ const UpdateProduct = () => {
                 <button
                   type="button"
                   onClick={deleteCategory}
-                  disabled={!selectedCategoryId}
-                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50"
+                  disabled={!selectedCategoryId || submitting}
+                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <i className="fas fa-trash"></i>
                   <span>Delete Category</span>
@@ -750,6 +853,9 @@ const UpdateProduct = () => {
                     required
                     disabled={!selectedProductId}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {product.title.length}/50 characters
+                  </p>
                 </div>
 
                 <div>
@@ -789,6 +895,9 @@ const UpdateProduct = () => {
                   required
                   disabled={!selectedProductId}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  {product.description.length}/100 characters
+                </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -836,7 +945,7 @@ const UpdateProduct = () => {
                   <input
                     type="file"
                     onChange={handleProductImages}
-                    accept="image/jpeg,image/png,image/gif"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
                     multiple
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     disabled={!selectedProductId}
@@ -848,31 +957,39 @@ const UpdateProduct = () => {
                         ? "Click to upload new product images"
                         : "Select a product first"}
                     </p>
+                    <p className="text-blue-400 text-sm mt-1">
+                      Maximum 8 images, 10MB each
+                    </p>
                   </div>
 
                   {productPreviews.length > 0 && (
-                    <div className="mt-6 flex flex-wrap gap-4">
-                      {productPreviews.map((preview, index) => (
-                        <div key={index} className="relative group">
-                          <img
-                            src={preview}
-                            alt={`Product preview ${index + 1}`}
-                            className="w-20 h-20 object-cover rounded-xl shadow-lg group-hover:scale-105 transition-transform duration-300"
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              removeProductImage(
-                                index,
-                                typeof preview === "string" ? preview : null
-                              )
-                            }
-                            className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition-colors duration-300 shadow-lg"
-                          >
-                            <i className="fas fa-times"></i>
-                          </button>
-                        </div>
-                      ))}
+                    <div className="mt-6">
+                      <p className="text-sm text-gray-600 mb-3">
+                        {productPreviews.length} image(s) selected
+                      </p>
+                      <div className="flex flex-wrap gap-4">
+                        {productPreviews.map((preview, index) => (
+                          <div key={index} className="relative group">
+                            <img
+                              src={preview}
+                              alt={`Product preview ${index + 1}`}
+                              className="w-20 h-20 object-cover rounded-xl shadow-lg group-hover:scale-105 transition-transform duration-300"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeProductImage(
+                                  index,
+                                  typeof preview === "string" ? preview : null
+                                )
+                              }
+                              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition-colors duration-300 shadow-lg"
+                            >
+                              <i className="fas fa-times"></i>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -882,7 +999,7 @@ const UpdateProduct = () => {
                 <button
                   type="submit"
                   disabled={submitting || !selectedProductId}
-                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50"
+                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <i className="fas fa-save"></i>
                   <span>{submitting ? "Saving..." : "Save Changes"}</span>
@@ -890,8 +1007,8 @@ const UpdateProduct = () => {
                 <button
                   type="button"
                   onClick={deleteProduct}
-                  disabled={!selectedProductId}
-                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50"
+                  disabled={!selectedProductId || submitting}
+                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <i className="fas fa-trash"></i>
                   <span>Delete Product</span>
@@ -914,42 +1031,52 @@ const UpdateProduct = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {recentUpdates.map((update) => (
-              <div
-                key={update.id}
-                className="bg-white rounded-2xl p-4 shadow-lg hover:shadow-xl hover:transform hover:-translate-y-2 transition-all duration-300"
-              >
-                <div className="mb-3">
-                  <img
-                    src={
-                      update.type === "product"
-                        ? update.images?.[0] || "/Images/placeholder.png"
-                        : update.image || "/Images/placeholder.png"
-                    }
-                    alt={update.type === "product" ? update.title : update.name}
-                    className="w-full h-32 object-cover rounded-xl"
-                  />
+            {recentUpdates.length > 0 ? (
+              recentUpdates.map((update) => (
+                <div
+                  key={update.id}
+                  className="bg-white rounded-2xl p-4 shadow-lg hover:shadow-xl hover:transform hover:-translate-y-2 transition-all duration-300"
+                >
+                  <div className="mb-3">
+                    <img
+                      src={
+                        update.type === "product"
+                          ? update.images?.[0] || "/Images/placeholder.png"
+                          : update.image || "/Images/placeholder.png"
+                      }
+                      alt={
+                        update.type === "product" ? update.title : update.name
+                      }
+                      className="w-full h-32 object-cover rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-800 text-sm mb-1">
+                      {update.type === "product" ? update.title : update.name}
+                    </h3>
+                    <p className="text-blue-600 text-xs">
+                      {update.type === "product"
+                        ? `Price: UGX ${parseFloat(
+                            update.price || 0
+                          ).toLocaleString()}`
+                        : `${
+                            update.action === "updated"
+                              ? "Category Updated"
+                              : "Category Deleted"
+                          }`}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-gray-800 text-sm mb-1">
-                    {update.type === "product" ? update.title : update.name}
-                  </h3>
-                  <p className="text-blue-600 text-xs">
-                    {update.type === "product"
-                      ? `Price: UGX ${
-                          update.price
-                            ? parseFloat(update.price).toFixed(2)
-                            : "0.00"
-                        }`
-                      : `${
-                          update.action === "updated"
-                            ? "Category Updated"
-                            : "Category Deleted"
-                        }`}
-                  </p>
-                </div>
+              ))
+            ) : (
+              <div className="col-span-full text-center py-8">
+                <i className="fas fa-history text-4xl text-gray-300 mb-3"></i>
+                <p className="text-gray-500">No recent updates</p>
+                <p className="text-gray-400 text-sm">
+                  Updates will appear here after you make changes
+                </p>
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>

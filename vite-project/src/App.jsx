@@ -10,6 +10,10 @@ import UpdateProduct from "./components/UpdateProduct";
 import AddProduct from "./components/AddProduct";
 import OrdersPage from "./components/OrdersPage";
 import CustomersPage from "./components/CustomersPage";
+import StockProducts from "./components/stockProducts";
+import Cart from "./components/Cart";
+import Payments from "./components/Payments";
+import CustomerOrders from "./components/CustomerOrders";
 
 function App() {
   return (
@@ -22,6 +26,11 @@ function App() {
           <Route path="/client" element={<ClientDashboard />} />
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/sales" element={<SalesDashboard />} />
+          <Route path="/products" element={<StockProducts />} />
+          <Route path="/cart" element={<Cart />} />
+          <Route path="/payment" element={<Payments />} />
+          <Route path="/customers" element={<CustomersPage />} />
+          <Route path="/orders" element={<CustomerOrders />} />
 
           {/* Add new product/category */}
           <Route path="/add-product" element={<AddProduct />} />

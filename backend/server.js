@@ -7,37 +7,85 @@ const cors = require("cors");
 const path = require("path");
 const http = require("http");
 const { Server } = require("socket.io");
-const jwt = require("jsonwebtoken");
+const fs = require("fs");
 require("dotenv").config();
 
+// Import configurations
+const databaseConfig = require("./config/database");
+const configurePassport = require("./config/passport");
+
+// Import middleware
+const {
+  ensureAuthenticated,
+  ensureAdmin,
+} = require("./AuthMiddleWare/checkRole");
+
+// Import route handlers
+const authRoutes = require("./routes/auth");
+const userAuthRoutes = require("./routes/userAuth");
+const updateProductRoutes = require("./routes/updateProductRoutes");
+const productRoutes = require("./routes/productRoutes");
+const categoryRoutes = require("./routes/categoryRoutes");
+const ordersRoute = require("./routes/ordersRoutes");
+
+// Initialize Express app
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// Store app-wide dependencies
 app.set("io", io);
 
-// --- Database Configuration ---
+// ============================================================================
+// DATABASE CONFIGURATION
+// ============================================================================
+
+// MySQL connection pool
 const pool = mysql.createPool({
   host: process.env.DB_HOST || "localhost",
   user: process.env.DB_USER || "root",
   password: process.env.DB_PASSWORD || "",
   database: process.env.DB_NAME || "Kings-Commerce",
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
 });
 
-const sequelize = require("./config/database");
+// Sequelize connection
+const sequelize = databaseConfig;
 
-sequelize
-  .authenticate()
-  .then(() => {
+// Import models with associations
+const {
+  Product,
+  Category,
+  User,
+  Cart,
+  Order,
+} = require("./models/associations");
+
+// Initialize database connection
+const initializeDatabase = async () => {
+  try {
+    await sequelize.authenticate();
     console.log("✅ MySQL Database connected successfully with Sequelize");
-  })
-  .catch((error) => {
-    console.error("❌ Database connection failed:", error.message);
-  });
 
+    await sequelize.sync({ force: false });
+    console.log("✅ Database tables synchronized");
+  } catch (error) {
+    console.error("❌ Database connection failed:", error.message);
+    process.exit(1);
+  }
+};
+
+// Store database connections in app locals
 app.locals.sequelize = sequelize;
 app.locals.pool = pool;
 
-// --- Session Store Configuration ---
+// ============================================================================
+// MIDDLEWARE SETUP
+// ============================================================================
+
+// Session store configuration
 const sessionStore = new MySQLStore(
   {
     expiration: 86400000,
@@ -54,7 +102,7 @@ const sessionStore = new MySQLStore(
   pool
 );
 
-// --- Middleware Setup ---
+// Core middleware
 app.use(
   session({
     secret:
@@ -86,104 +134,23 @@ app.use(
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
 app.use(express.static(path.join(__dirname, "public")));
 
+// View engine setup
 app.set("view engine", "pug");
 app.set("views", path.join(__dirname, "views"));
 
-// --- Passport Setup ---
-const configurePassport = require("./config/passport");
+// Passport configuration
 const passportInstance = configurePassport(sequelize);
 app.use(passportInstance.initialize());
 app.use(passportInstance.session());
 app.set("passport", passportInstance);
 
-// --- Sequelize Models Definition ---
-const { DataTypes, Sequelize } = require("sequelize");
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
 
-const Product = require("./models/productSchema");
-const Category = require("./models/categoryModel");
-const User = require("./models/userModel")(sequelize);
-
-const Order = sequelize.define("Order", {
-  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-  items: { type: DataTypes.JSON, allowNull: false },
-  total: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
-  paymentMethod: { type: DataTypes.STRING, allowNull: false },
-  amountReceived: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
-  userId: { type: DataTypes.INTEGER, allowNull: false },
-  status: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    defaultValue: "pending",
-    validate: {
-      isIn: [
-        [
-          "pending",
-          "processing",
-          "approved",
-          "shipped",
-          "delivered",
-          "cancelled",
-          "rejected",
-        ],
-      ],
-    },
-  },
-  orderDate: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
-  orderId: { type: DataTypes.STRING, allowNull: true },
-});
-
-const Message = sequelize.define("Message", {
-  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-  title: { type: DataTypes.STRING, allowNull: false },
-  content: { type: DataTypes.TEXT, allowNull: false },
-  type: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    defaultValue: "general",
-    validate: {
-      isIn: [["general", "order", "promotion", "support"]],
-    },
-  },
-  isUnread: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
-  timeAgo: { type: DataTypes.STRING, allowNull: false },
-  userId: { type: DataTypes.INTEGER, allowNull: false },
-});
-
-// --- Database Sync ---
-sequelize
-  .sync({ force: false })
-  .then(() => {
-    console.log("✅ Database tables synchronized");
-  })
-  .catch((error) => {
-    console.error("❌ Database sync failed:", error);
-  });
-
-// --- Authentication Middleware ---
-const ensureAuthenticated = (req, res, next) => {
-  console.log("ensureAuthenticated: isAuthenticated:", req.isAuthenticated());
-  console.log("ensureAuthenticated: User ID:", req.user?.id);
-  if (req.isAuthenticated() && req.user) {
-    return next();
-  }
-  console.log("ensureAuthenticated: Authentication failed");
-  res.status(401).json({ message: "Unauthorized. Please log in." });
-};
-
-const ensureAdmin = (req, res, next) => {
-  if (req.isAuthenticated() && req.user && req.user.role === "admin") {
-    return next();
-  }
-  res
-    .status(403)
-    .json({ message: "Access denied. Admin privileges required." });
-};
-
-// --- Helper Functions ---
-function formatTimeAgo(date) {
+const formatTimeAgo = (date) => {
   const now = new Date();
   const diffInSeconds = Math.floor((now - new Date(date)) / 1000);
 
@@ -192,9 +159,601 @@ function formatTimeAgo(date) {
   if (diffInSeconds < 86400)
     return `${Math.floor(diffInSeconds / 3600)} hours ago`;
   return `${Math.floor(diffInSeconds / 86400)} days ago`;
-}
+};
 
-// --- Admin Routes ---
+// ============================================================================
+// CART ROUTES - COMPLETE IMPLEMENTATION
+// ============================================================================
+
+/**
+ * GET /api/cart - Get user's cart
+ */
+app.get("/api/cart", ensureAuthenticated, async (req, res) => {
+  try {
+    let cart = await Cart.findOne({
+      where: { userId: req.user.id },
+    });
+
+    if (!cart) {
+      // Create a new cart if it doesn't exist
+      cart = await Cart.create({
+        userId: req.user.id,
+        items: [],
+        totalProducts: 0,
+        totalPrice: 0,
+      });
+    }
+
+    // Populate product details for each item
+    const populatedItems = await Promise.all(
+      cart.items.map(async (item) => {
+        const product = await Product.findByPk(item.productId);
+        return {
+          ...item,
+          product: product
+            ? {
+                _id: product.id,
+                title: product.title,
+                price: parseFloat(product.price),
+                images: product.images || [],
+                description: product.description,
+                size: product.size || [],
+                category_id: product.category_id,
+              }
+            : null,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      items: populatedItems,
+      totalProducts: cart.totalProducts,
+      totalPrice: parseFloat(cart.totalPrice),
+    });
+  } catch (error) {
+    console.error("Error fetching cart:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching cart",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/cart - Add item to cart
+ */
+app.post("/api/cart", ensureAuthenticated, async (req, res) => {
+  try {
+    const { productId, quantity = 1, size = null } = req.body;
+
+    // Validate input
+    if (!productId) {
+      return res.status(400).json({
+        success: false,
+        message: "Product ID is required",
+      });
+    }
+
+    // Get the product
+    const product = await Product.findByPk(productId);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    let cart = await Cart.findOne({
+      where: { userId: req.user.id },
+    });
+
+    // Create cart if it doesn't exist
+    if (!cart) {
+      cart = await Cart.create({
+        userId: req.user.id,
+        items: [],
+        totalProducts: 0,
+        totalPrice: 0,
+      });
+    }
+
+    // Check if item already exists in cart
+    const existingItemIndex = cart.items.findIndex(
+      (item) => item.productId === productId && item.size === size
+    );
+
+    let updatedItems;
+    if (existingItemIndex > -1) {
+      // Update existing item quantity
+      updatedItems = [...cart.items];
+      updatedItems[existingItemIndex].quantity += quantity;
+    } else {
+      // Add new item
+      const newItem = {
+        productId,
+        quantity,
+        size,
+        title: product.title,
+        price: parseFloat(product.price),
+        image:
+          product.images && product.images.length > 0
+            ? product.images[0]
+            : null,
+        addedAt: new Date().toISOString(),
+      };
+      updatedItems = [...cart.items, newItem];
+    }
+
+    // Calculate totals
+    const totalProducts = updatedItems.reduce(
+      (sum, item) => sum + item.quantity,
+      0
+    );
+    const totalPrice = updatedItems.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    );
+
+    // Update cart
+    await cart.update({
+      items: updatedItems,
+      totalProducts,
+      totalPrice,
+    });
+
+    res.json({
+      success: true,
+      message: "Product added to cart successfully",
+      cart: {
+        items: updatedItems,
+        totalProducts,
+        totalPrice: parseFloat(totalPrice),
+      },
+    });
+  } catch (error) {
+    console.error("Error adding to cart:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error adding product to cart",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * PUT /api/cart/item/:itemId - Update cart item quantity
+ */
+app.put("/api/cart/item/:itemId", ensureAuthenticated, async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const { quantity } = req.body;
+
+    if (!quantity || quantity < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid quantity is required",
+      });
+    }
+
+    const cart = await Cart.findOne({
+      where: { userId: req.user.id },
+    });
+
+    if (!cart) {
+      return res.status(404).json({
+        success: false,
+        message: "Cart not found",
+      });
+    }
+
+    const itemIndex = cart.items.findIndex((item) => item.addedAt === itemId);
+
+    if (itemIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found in cart",
+      });
+    }
+
+    const updatedItems = [...cart.items];
+    updatedItems[itemIndex].quantity = quantity;
+
+    // Calculate totals
+    const totalProducts = updatedItems.reduce(
+      (sum, item) => sum + item.quantity,
+      0
+    );
+    const totalPrice = updatedItems.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    );
+
+    await cart.update({
+      items: updatedItems,
+      totalProducts,
+      totalPrice,
+    });
+
+    res.json({
+      success: true,
+      message: "Cart updated successfully",
+      cart: {
+        items: updatedItems,
+        totalProducts,
+        totalPrice: parseFloat(totalPrice),
+      },
+    });
+  } catch (error) {
+    console.error("Error updating cart item:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating cart item",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * DELETE /api/cart/item/:itemId - Remove item from cart
+ */
+app.delete("/api/cart/item/:itemId", ensureAuthenticated, async (req, res) => {
+  try {
+    const { itemId } = req.params;
+
+    const cart = await Cart.findOne({
+      where: { userId: req.user.id },
+    });
+
+    if (!cart) {
+      return res.status(404).json({
+        success: false,
+        message: "Cart not found",
+      });
+    }
+
+    const updatedItems = cart.items.filter((item) => item.addedAt !== itemId);
+
+    // Calculate totals
+    const totalProducts = updatedItems.reduce(
+      (sum, item) => sum + item.quantity,
+      0
+    );
+    const totalPrice = updatedItems.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    );
+
+    await cart.update({
+      items: updatedItems,
+      totalProducts,
+      totalPrice,
+    });
+
+    res.json({
+      success: true,
+      message: "Item removed from cart",
+      cart: {
+        items: updatedItems,
+        totalProducts,
+        totalPrice: parseFloat(totalPrice),
+      },
+    });
+  } catch (error) {
+    console.error("Error removing cart item:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error removing item from cart",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * DELETE /api/cart/clear - Clear entire cart
+ */
+app.delete("/api/cart/clear", ensureAuthenticated, async (req, res) => {
+  try {
+    const cart = await Cart.findOne({
+      where: { userId: req.user.id },
+    });
+
+    if (!cart) {
+      return res.status(404).json({
+        success: false,
+        message: "Cart not found",
+      });
+    }
+
+    await cart.update({
+      items: [],
+      totalProducts: 0,
+      totalPrice: 0,
+    });
+
+    res.json({
+      success: true,
+      message: "Cart cleared successfully",
+      cart: {
+        items: [],
+        totalProducts: 0,
+        totalPrice: 0,
+      },
+    });
+  } catch (error) {
+    console.error("Error clearing cart:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error clearing cart",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/cart/count - Get cart item count
+ */
+app.get("/api/cart/count", ensureAuthenticated, async (req, res) => {
+  try {
+    const cart = await Cart.findOne({
+      where: { userId: req.user.id },
+    });
+
+    if (!cart) {
+      return res.json({
+        success: true,
+        totalProducts: 0,
+        count: 0,
+      });
+    }
+
+    res.json({
+      success: true,
+      totalProducts: cart.totalProducts,
+      count: cart.totalProducts,
+    });
+  } catch (error) {
+    console.error("Error fetching cart count:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching cart count",
+      error: error.message,
+    });
+  }
+});
+
+// ============================================================================
+// ORDER ROUTES - REMOVED DUPLICATES (Using external ordersRoute)
+// ============================================================================
+
+// REMOVED: All the duplicate order routes that were causing validation errors
+// The ordersRoute.js file will handle all /api/orders requests
+
+// ============================================================================
+// API ROUTES
+// ============================================================================
+
+// Health check endpoint
+app.get("/health", async (req, res) => {
+  try {
+    await sequelize.authenticate();
+    res.json({
+      status: "OK",
+      timestamp: new Date().toISOString(),
+      database: "Connected",
+      orm: "Sequelize",
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "ERROR",
+      database: "Disconnected",
+      error: error.message,
+    });
+  }
+});
+
+// Base route
+app.get("/", (req, res) => {
+  res.json({
+    message: "Kings Collection API",
+    version: "2.0.0",
+    orm: "Sequelize",
+  });
+});
+
+// ============================================================================
+// USER ROUTES
+// ============================================================================
+
+/**
+ * GET /api/users/me - Get current user data
+ */
+app.get("/api/users/me", ensureAuthenticated, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.id, {
+      attributes: { exclude: ["password"] },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      avatar:
+        user.avatar ||
+        "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100",
+      role: user.role,
+      mailingAddress: user.mailingAddress,
+      newsletter: user.newsletter,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Server error fetching user data",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/users/verify-token - Verify JWT token
+ */
+app.post("/api/users/verify-token", ensureAuthenticated, async (req, res) => {
+  try {
+    res.json({
+      valid: true,
+      user: {
+        id: req.user.id,
+        name: req.user.name,
+        email: req.user.email,
+        role: req.user.role,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      valid: false,
+      message: "Token verification failed",
+      error: error.message,
+    });
+  }
+});
+
+// ============================================================================
+// DASHBOARD ROUTES
+// ============================================================================
+
+/**
+ * GET /api/dashboard - Client dashboard data
+ */
+app.get("/api/dashboard", ensureAuthenticated, async (req, res) => {
+  try {
+    const [orderCount, recentOrders, messageCount, totalSpent, cart] =
+      await Promise.all([
+        Order.count({ where: { userId: req.user.id } }),
+        Order.findAll({
+          where: { userId: req.user.id },
+          limit: 5,
+          order: [["createdAt", "DESC"]],
+        }),
+        0, // Message count placeholder
+        Order.sum("totalAmount", {
+          where: { userId: req.user.id, status: ["delivered", "shipped"] },
+        }),
+        Cart.findOne({ where: { userId: req.user.id } }),
+      ]);
+
+    res.json({
+      orderCount: orderCount || 0,
+      messageCount: messageCount || 0,
+      cartCount: cart ? cart.totalProducts : 0,
+      wishlistCount: 0,
+      loyaltyPoints: Math.floor((totalSpent || 0) / 10),
+      totalSaved: Math.floor((totalSpent || 0) * 0.05),
+      wishlistOnSale: 0,
+      recentOrders: recentOrders.map((order) => ({
+        id: order.id,
+        orderId: order.orderId,
+        totalPrice: parseFloat(order.totalAmount),
+        status: order.status,
+        orderDate: order.createdAt,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Server error fetching dashboard data",
+      error: error.message,
+    });
+  }
+});
+
+// ============================================================================
+// PRODUCT ROUTES
+// ============================================================================
+
+/**
+ * GET /api/products/recommended - Get recommended products
+ */
+app.get("/api/products/recommended", ensureAuthenticated, async (req, res) => {
+  try {
+    const products = await Product.findAll({
+      limit: 4,
+      order: sequelize.random(),
+      include: [
+        {
+          model: Category,
+          as: "category",
+          attributes: ["id", "name", "image"],
+        },
+      ],
+    });
+
+    const formattedProducts = products.map((product) => ({
+      _id: product.id,
+      title: product.title,
+      price: parseFloat(product.price),
+      image:
+        product.images && product.images.length > 0 ? product.images[0] : null,
+      description: product.description,
+    }));
+
+    res.json(formattedProducts);
+  } catch (error) {
+    console.error("Error fetching recommended products:", error);
+    res.json([]);
+  }
+});
+
+/**
+ * GET /api/products/search - Search products
+ */
+app.get("/api/products/search", ensureAuthenticated, async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.length < 2) {
+      return res.json([]);
+    }
+
+    const products = await Product.findAll({
+      where: {
+        [sequelize.Op.or]: [
+          { title: { [sequelize.Op.like]: `%${q}%` } },
+          { description: { [sequelize.Op.like]: `%${q}%` } },
+        ],
+      },
+      limit: 10,
+      include: [
+        {
+          model: Category,
+          as: "category",
+          attributes: ["id", "name", "image"],
+        },
+      ],
+    });
+
+    const formattedProducts = products.map((product) => ({
+      _id: product.id,
+      title: product.title,
+      price: parseFloat(product.price),
+      image:
+        product.images && product.images.length > 0 ? product.images[0] : null,
+    }));
+
+    res.json(formattedProducts);
+  } catch (error) {
+    console.error("Error searching products:", error);
+    res.json([]);
+  }
+});
+
+// ============================================================================
+// ADMIN ROUTES
+// ============================================================================
 
 /**
  * GET /api/admin/dashboard - Admin dashboard summary data
@@ -205,12 +764,6 @@ app.get(
   ensureAdmin,
   async (req, res) => {
     try {
-      console.log(
-        "GET /api/admin/dashboard: Fetching for admin ID:",
-        req.user.id
-      );
-
-      // Get current month start and end dates
       const currentMonthStart = new Date(
         new Date().getFullYear(),
         new Date().getMonth(),
@@ -222,7 +775,6 @@ app.get(
         0
       );
 
-      // Get dashboard metrics using Promise.all for efficiency
       const [
         totalRevenue,
         pendingOrders,
@@ -231,63 +783,47 @@ app.get(
         activeCustomers,
         recentOrders,
         recentActivities,
+        lowStockResult,
       ] = await Promise.all([
-        // Total revenue for current month
-        Order.sum("total", {
+        Order.sum("totalAmount", {
           where: {
             status: ["delivered", "shipped"],
-            orderDate: {
-              [Sequelize.Op.between]: [currentMonthStart, currentMonthEnd],
+            createdAt: {
+              [sequelize.Op.between]: [currentMonthStart, currentMonthEnd],
             },
           },
         }),
-        // Pending orders count
         Order.count({ where: { status: "pending" } }),
-        // New customers this month
         User.count({
           where: {
             role: "client",
             createdAt: {
-              [Sequelize.Op.between]: [currentMonthStart, currentMonthEnd],
+              [sequelize.Op.between]: [currentMonthStart, currentMonthEnd],
             },
           },
         }),
-        // Total products
-        // Adjust based on your product model - using raw query for now
-        pool
-          .execute(
-            "SELECT COUNT(*) as count FROM products WHERE isActive = true"
-          )
-          .then(([rows]) => rows[0].count),
-        // Active customers
+        Product.count(),
         User.count({ where: { role: "client", isActive: true } }),
-        // Recent orders for activities
         Order.findAll({
           limit: 5,
           order: [["createdAt", "DESC"]],
-          include: [
-            {
-              model: User,
-              attributes: ["name", "email"],
-            },
-          ],
+          include: [{ model: User, attributes: ["name", "email"] }],
         }),
-        // Recent user registrations for activities
         User.findAll({
           where: { role: "client" },
           limit: 5,
           order: [["createdAt", "DESC"]],
           attributes: ["name", "email", "createdAt"],
         }),
+        Product.count({ where: { stock_id: { [sequelize.Op.lte]: 10 } } }),
       ]);
 
-      // Format activities from both orders and new users
       const orderActivities = recentOrders.map((order) => ({
         id: `order-${order.id}`,
         action: `New order from ${order.User.name}`,
         time: formatTimeAgo(order.createdAt),
         type: "order",
-        amount: order.total,
+        amount: order.totalAmount,
       }));
 
       const userActivities = recentActivities.map((user) => ({
@@ -297,30 +833,22 @@ app.get(
         type: "customer",
       }));
 
-      // Combine and sort activities by time
       const allActivities = [...orderActivities, ...userActivities]
         .sort((a, b) => new Date(b.time) - new Date(a.time))
         .slice(0, 5);
-
-      // Calculate low stock items (assuming threshold of 10)
-      const [lowStockResult] = await pool.execute(
-        "SELECT COUNT(*) as count FROM products WHERE stockQuantity <= 10 AND isActive = true"
-      );
-      const lowStockItems = lowStockResult[0].count;
 
       res.json({
         metrics: {
           totalRevenue: totalRevenue || 0,
           pendingOrders: pendingOrders || 0,
           newCustomers: newCustomers || 0,
-          lowStockItems: lowStockItems || 0,
+          lowStockItems: lowStockResult || 0,
           totalProducts: totalProducts || 0,
           activeCustomers: activeCustomers || 0,
         },
         recentActivities: allActivities,
       });
     } catch (error) {
-      console.error("GET /api/admin/dashboard: Error:", error);
       res.status(500).json({
         message: "Server error fetching dashboard data",
         error: error.message,
@@ -329,352 +857,10 @@ app.get(
   }
 );
 
-/**
- * GET /api/admin/orders - Get all orders with pagination
- */
-app.get(
-  "/api/admin/orders",
-  ensureAuthenticated,
-  ensureAdmin,
-  async (req, res) => {
-    try {
-      const { page = 1, limit = 10, status } = req.query;
-      const offset = (page - 1) * limit;
+// ============================================================================
+// VIEW ROUTES
+// ============================================================================
 
-      const whereClause = status ? { status } : {};
-
-      const { count, rows: orders } = await Order.findAndCountAll({
-        where: whereClause,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
-        order: [["createdAt", "DESC"]],
-        include: [
-          {
-            model: User,
-            attributes: ["id", "name", "email"],
-          },
-        ],
-      });
-
-      const formattedOrders = orders.map((order) => ({
-        id: order.id,
-        orderId: order.orderId || `ORD-${order.id.toString().padStart(6, "0")}`,
-        customer: {
-          id: order.User.id,
-          name: order.User.name,
-          email: order.User.email,
-        },
-        items: order.items,
-        total: parseFloat(order.total),
-        status: order.status,
-        paymentMethod: order.paymentMethod,
-        orderDate: order.orderDate,
-        createdAt: order.createdAt,
-      }));
-
-      res.json({
-        orders: formattedOrders,
-        totalCount: count,
-        totalPages: Math.ceil(count / limit),
-        currentPage: parseInt(page),
-      });
-    } catch (error) {
-      console.error("GET /api/admin/orders: Error:", error);
-      res.status(500).json({
-        message: "Server error fetching orders",
-        error: error.message,
-      });
-    }
-  }
-);
-
-/**
- * PATCH /api/admin/orders/:id/status - Update order status
- */
-app.patch(
-  "/api/admin/orders/:id/status",
-  ensureAuthenticated,
-  ensureAdmin,
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { status } = req.body;
-
-      if (
-        ![
-          "pending",
-          "processing",
-          "approved",
-          "shipped",
-          "delivered",
-          "cancelled",
-          "rejected",
-        ].includes(status)
-      ) {
-        return res.status(400).json({ message: "Invalid status" });
-      }
-
-      const order = await Order.findByPk(id);
-      if (!order) {
-        return res.status(404).json({ message: "Order not found" });
-      }
-
-      await order.update({ status });
-
-      // Emit socket event for real-time updates
-      if (app.get("io")) {
-        app.get("io").emit("orderUpdated", {
-          id: order.id,
-          status: order.status,
-          updatedAt: order.updatedAt,
-        });
-      }
-
-      res.json({
-        message: `Order status updated to ${status}`,
-        order: {
-          id: order.id,
-          status: order.status,
-        },
-      });
-    } catch (error) {
-      console.error("PATCH /api/admin/orders/:id/status: Error:", error);
-      res.status(500).json({
-        message: "Server error updating order status",
-        error: error.message,
-      });
-    }
-  }
-);
-
-/**
- * GET /api/admin/customers - Get all customers with pagination
- */
-app.get(
-  "/api/admin/customers",
-  ensureAuthenticated,
-  ensureAdmin,
-  async (req, res) => {
-    try {
-      const { page = 1, limit = 10, search } = req.query;
-      const offset = (page - 1) * limit;
-
-      let whereClause = { role: "client" };
-      if (search) {
-        whereClause = {
-          ...whereClause,
-          [Sequelize.Op.or]: [
-            { name: { [Sequelize.Op.like]: `%${search}%` } },
-            { email: { [Sequelize.Op.like]: `%${search}%` } },
-          ],
-        };
-      }
-
-      const { count, rows: customers } = await User.findAndCountAll({
-        where: whereClause,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
-        order: [["createdAt", "DESC"]],
-        attributes: { exclude: ["password"] },
-      });
-
-      // Get order counts for each customer
-      const customersWithStats = await Promise.all(
-        customers.map(async (customer) => {
-          const orderCount = await Order.count({
-            where: { userId: customer.id },
-          });
-          const totalSpent = await Order.sum("total", {
-            where: {
-              userId: customer.id,
-              status: ["delivered", "shipped"],
-            },
-          });
-
-          return {
-            id: customer.id,
-            name: customer.name,
-            email: customer.email,
-            avatar: customer.avatar,
-            isActive: customer.isActive,
-            createdAt: customer.createdAt,
-            lastLogin: customer.lastLogin,
-            stats: {
-              orderCount: orderCount || 0,
-              totalSpent: totalSpent || 0,
-            },
-          };
-        })
-      );
-
-      res.json({
-        customers: customersWithStats,
-        totalCount: count,
-        totalPages: Math.ceil(count / limit),
-        currentPage: parseInt(page),
-      });
-    } catch (error) {
-      console.error("GET /api/admin/customers: Error:", error);
-      res.status(500).json({
-        message: "Server error fetching customers",
-        error: error.message,
-      });
-    }
-  }
-);
-
-/**
- * GET /api/admin/user - Get admin user data
- */
-app.get(
-  "/api/admin/user",
-  ensureAuthenticated,
-  ensureAdmin,
-  async (req, res) => {
-    try {
-      console.log("GET /api/admin/user: Fetching for user ID:", req.user.id);
-
-      const user = await User.findByPk(req.user.id, {
-        attributes: { exclude: ["password"] },
-      });
-
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      res.json({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        avatar:
-          user.avatar ||
-          "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100",
-        role: user.role,
-      });
-    } catch (error) {
-      console.error("GET /api/admin/user: Error:", error);
-      res.status(500).json({
-        message: "Server error fetching user data",
-        error: error.message,
-      });
-    }
-  }
-);
-
-// --- Existing Routes (Keep all your existing routes below) ---
-
-/**
- * POST /api/users/signup/email - User registration
- */
-app.post("/api/users/signup/email", async (req, res) => {
-  const { name, email, password, role, mailingAddress, newsletter } = req.body;
-  console.log("POST /api/users/signup/email: Received data:", {
-    name,
-    email,
-    role,
-    mailingAddress,
-    newsletter,
-  });
-
-  try {
-    // Validate inputs
-    if (!name || name.trim().length < 2) {
-      return res
-        .status(400)
-        .json({ message: "Name must be at least 2 characters" });
-    }
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ message: "Invalid email address" });
-    }
-    if (!password || password.length < 8) {
-      return res
-        .status(400)
-        .json({ message: "Password must be at least 8 characters" });
-    }
-    if (!role || !["client", "admin", "salesAgent"].includes(role)) {
-      return res.status(400).json({ message: "Invalid role" });
-    }
-    if (role === "client" && (!mailingAddress || !mailingAddress.trim())) {
-      return res
-        .status(400)
-        .json({ message: "Mailing address is required for clients" });
-    }
-
-    // Check if email already exists
-    const existingUser = await User.findOne({
-      where: { email: email.toLowerCase() },
-    });
-    if (existingUser) {
-      return res
-        .status(400)
-        .json({ message: "This email is already registered" });
-    }
-
-    // Create user
-    const user = await User.create({
-      name: name.trim(),
-      email: email.toLowerCase(),
-      password, // Will be hashed by beforeSave hook
-      role,
-      mailingAddress: role === "client" ? mailingAddress.trim() : null,
-      newsletter: !!newsletter,
-      isActive: true,
-    });
-
-    console.log("POST /api/users/signup/email: User created, ID:", user.id);
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "1d" }
-    );
-
-    // Log the user in
-    req.login(user, (err) => {
-      if (err) {
-        console.error("POST /api/users/signup/email: Login error:", err);
-        return res
-          .status(500)
-          .json({ message: "Error logging in after signup" });
-      }
-
-      const redirectUrl =
-        role === "client"
-          ? `/client?token=${token}`
-          : role === "salesAgent"
-          ? `/sales?token=${token}`
-          : `/admin?token=${token}`;
-
-      return res.json({
-        message: "Account created successfully",
-        redirectUrl,
-        user: { id: user.id, email: user.email, role: user.role },
-        token,
-      });
-    });
-  } catch (error) {
-    console.error("POST /api/users/signup/email: Error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-});
-
-// ... (Keep all your other existing routes exactly as they were)
-
-// --- API Route Mounting ---
-const authRoutes = require("./routes/auth")(passportInstance);
-const userAuthRoutes = require("./routes/userAuth");
-const updateProductRoutes = require("./routes/updateProductRoutes");
-const productRoutes = require("./routes/productRoutes");
-const categoryRoutes = require("./routes/categoryRoutes");
-
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userAuthRoutes);
-app.use("/api", updateProductRoutes);
-app.use("/api/products", productRoutes);
-app.use("/api/categories", categoryRoutes);
-
-// --- View Routes ---
 app.get("/login", (req, res) => {
   res.render("login", {
     message: req.query.error,
@@ -689,62 +875,63 @@ app.get("/signup", (req, res) => {
   });
 });
 
-/**
- * GET /health - Server and DB health check
- */
-app.get("/health", async (req, res) => {
-  try {
-    await sequelize.authenticate();
-    res.json({
-      status: "OK",
-      timestamp: new Date().toISOString(),
-      database: "Connected",
-      orm: "Sequelize",
-    });
-  } catch (error) {
-    console.error("GET /health: Error:", error);
-    res.status(500).json({
-      status: "ERROR",
-      database: "Disconnected",
-      error: error.message,
-    });
-  }
-});
+// ============================================================================
+// EXTERNAL ROUTE MOUNTING
+// ============================================================================
 
-/**
- * GET / - Base Route
- */
-app.get("/", (req, res) => {
-  res.json({
-    message: "Kings Collection API",
-    version: "2.0.0",
-    orm: "Sequelize",
-  });
-});
+app.use("/api/auth", authRoutes(passportInstance));
+app.use("/api/users", userAuthRoutes);
+app.use("/api", updateProductRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/orders", ordersRoute); // This handles ALL order routes
 
-// --- Error Handlers ---
-
-// Global Error Handler
-app.use((err, req, res, next) => {
-  console.error("Global error handler:", err.stack);
-  res.status(err.status || 500).json({
-    message: "Internal server error",
-    error: process.env.NODE_ENV === "development" ? err.message : undefined,
-  });
-});
+// ============================================================================
+// ERROR HANDLERS
+// ============================================================================
 
 // 404 Not Found Handler
-app.use((req, res, next) => {
-  console.log("404 handler: Path:", req.path, "Method:", req.method);
+app.use((req, res) => {
   res.status(404).json({
+    success: false,
     message: "Route not found",
     path: req.path,
     method: req.method,
   });
 });
 
-// --- Start Server ---
-const PORT = process.env.PORT || 3005;
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error("Global error handler:", err.stack);
+  res.status(err.status || 500).json({
+    success: false,
+    message: "Internal server error",
+    error: process.env.NODE_ENV === "development" ? err.message : undefined,
+  });
 });
+
+// ============================================================================
+// SERVER INITIALIZATION
+// ============================================================================
+
+const startServer = async () => {
+  try {
+    await initializeDatabase();
+
+    const PORT = process.env.PORT || 3005;
+    server.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`🛒 Cart system: ACTIVE`);
+      console.log(`📦 Order system: ACTIVE (Using Raw MySQL)`);
+      console.log(`👤 User system: ACTIVE`);
+      console.log(`🛍️  Product system: ACTIVE`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error);
+    process.exit(1);
+  }
+};
+
+// Start the server
+startServer();

@@ -7,13 +7,26 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 
+// Ensure upload directories exist
+const createUploadDirs = () => {
+  const dirs = [
+    path.join(__dirname, "../public/uploads"),
+    path.join(__dirname, "../public/upload/category"),
+  ];
+
+  dirs.forEach((dir) => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  });
+};
+
+createUploadDirs();
+
 // Multer storage configuration for multiple files
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadPath = path.join(__dirname, "../public/uploads");
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
@@ -48,8 +61,6 @@ router.get("/update-product/:id", async (req, res) => {
     console.log(`Fetching product with ID: ${req.params.id}`);
 
     const product = await Product.findByPk(req.params.id);
-    // FIXED: Removed include since we haven't set up associations yet
-    // You can add associations later if needed
 
     if (!product) {
       console.error(`Product not found: ${req.params.id}`);
@@ -63,6 +74,13 @@ router.get("/update-product/:id", async (req, res) => {
       attributes: ["id", "name", "image"],
     });
 
+    // Format product images with full URLs
+    const formattedImages = Array.isArray(product.images)
+      ? product.images.map((img) =>
+          img.startsWith("/") ? img : `/uploads/${img}`
+        )
+      : [];
+
     res.json({
       success: true,
       product: {
@@ -72,20 +90,21 @@ router.get("/update-product/:id", async (req, res) => {
         category: product.category_id,
         price: product.price,
         stockId: product.stock_id,
-        images: product.images || [],
-        // FIXED: Removed category_details since no association
+        images: formattedImages,
+        size: product.size || [],
+        color: product.color,
       },
       categories: categories.map((cat) => ({
         id: cat.id,
         name: cat.name,
-        image: cat.image,
+        image: cat.image ? `/upload/category/${cat.image}` : null,
       })),
     });
   } catch (error) {
     console.error(`Error fetching product ${req.params.id}:`, error);
     res.status(500).json({
       success: false,
-      message: "Server error fetching product",
+      message: "Server error fetching product: " + error.message,
     });
   }
 });
@@ -113,19 +132,19 @@ router.get("/update-category/:id", async (req, res) => {
       category: {
         id: category.id,
         name: category.name,
-        image: category.image,
+        image: category.image ? `/upload/category/${category.image}` : null,
       },
       categories: categories.map((cat) => ({
         id: cat.id,
         name: cat.name,
-        image: cat.image,
+        image: cat.image ? `/upload/category/${cat.image}` : null,
       })),
     });
   } catch (error) {
     console.error(`Error fetching category ${req.params.id}:`, error);
     res.status(500).json({
       success: false,
-      message: "Server error fetching category",
+      message: "Server error fetching category: " + error.message,
     });
   }
 });
@@ -133,7 +152,7 @@ router.get("/update-category/:id", async (req, res) => {
 // POST Update Product with multiple images
 router.post(
   "/update-product/:id",
-  upload.array("images", 8), // Handle up to 8 files
+  upload.array("images", 8),
   async (req, res) => {
     try {
       const { title, description, price, stockId, category } = req.body;
@@ -192,36 +211,49 @@ router.post(
 
       await product.update(updateData);
 
-      // Fetch updated product
+      // Fetch updated product with category details
       const updatedProduct = await Product.findByPk(productId);
 
       console.log(`Product updated successfully: ${updatedProduct.id}`);
 
-      // Emit real-time update (Socket.io) - KEPT from your original
+      // Emit real-time update (Socket.io)
       const io = req.app.get("io");
       if (io) {
         io.emit("productUpdated", {
           id: updatedProduct.id,
+          _id: updatedProduct.id,
           title: updatedProduct.title,
           images: updatedProduct.images,
           price: updatedProduct.price,
-          category: { name: categoryExists.name }, // Use categoryExists we fetched earlier
+          category: {
+            _id: categoryExists.id,
+            id: categoryExists.id,
+            name: categoryExists.name,
+          },
           stockId: updatedProduct.stock_id,
         });
-      } else {
-        console.warn("Socket.IO instance not available for emit.");
       }
 
       res.status(200).json({
         success: true,
         message: "Product updated successfully",
-        product: updatedProduct,
+        product: {
+          id: updatedProduct.id,
+          title: updatedProduct.title,
+          description: updatedProduct.description,
+          price: updatedProduct.price,
+          category_id: updatedProduct.category_id,
+          stock_id: updatedProduct.stock_id,
+          images: updatedProduct.images,
+          size: updatedProduct.size,
+          color: updatedProduct.color,
+        },
       });
     } catch (error) {
       console.error(`Error updating product ${req.params.id}:`, error);
       res.status(500).json({
         success: false,
-        message: error.message || "Server error updating product",
+        message: "Server error updating product: " + error.message,
       });
     }
   }
@@ -255,44 +287,54 @@ router.post(
       if (req.file) {
         // Delete old image file if exists
         if (category.image) {
-          const oldFilename = path.basename(category.image);
           const oldFilePath = path.join(
             __dirname,
-            "../public/uploads",
-            oldFilename
+            "../public/upload/category",
+            category.image
           );
           if (fs.existsSync(oldFilePath)) {
             fs.unlinkSync(oldFilePath);
           }
         }
-        updateData.image = `/uploads/${req.file.filename}`;
+        updateData.image = req.file.filename;
       }
 
       await category.update(updateData);
-      console.log(`Category updated successfully: ${category.id}`);
 
-      // Emit real-time update (Socket.io) - KEPT from your original
+      // Fetch updated category
+      const updatedCategory = await Category.findByPk(categoryId);
+
+      console.log(`Category updated successfully: ${updatedCategory.id}`);
+
+      // Emit real-time update (Socket.io)
       const io = req.app.get("io");
       if (io) {
         io.emit("categoryUpdated", {
-          id: category.id,
-          name: category.name,
-          image: category.image,
+          id: updatedCategory.id,
+          _id: updatedCategory.id,
+          name: updatedCategory.name,
+          image: updatedCategory.image
+            ? `/upload/category/${updatedCategory.image}`
+            : null,
         });
-      } else {
-        console.warn("Socket.IO instance not available for emit.");
       }
 
       res.status(200).json({
         success: true,
         message: "Category updated successfully",
-        category: category,
+        category: {
+          id: updatedCategory.id,
+          name: updatedCategory.name,
+          image: updatedCategory.image
+            ? `/upload/category/${updatedCategory.image}`
+            : null,
+        },
       });
     } catch (error) {
       console.error(`Error updating category ${req.params.id}:`, error);
       res.status(500).json({
         success: false,
-        message: error.message || "Server error updating category",
+        message: "Server error updating category: " + error.message,
       });
     }
   }
@@ -327,15 +369,12 @@ router.delete("/delete-product/:id", async (req, res) => {
     await product.destroy();
     console.log(`Product deleted successfully: ${productId}`);
 
-    // Emit real-time update (Socket.io) - KEPT from your original
+    // Emit real-time update (Socket.io)
     const io = req.app.get("io");
     if (io) {
-      io.emit("productUpdated", {
+      io.emit("productDeleted", {
         id: productId,
-        title: "Deleted Product",
       });
-    } else {
-      console.warn("Socket.IO instance not available for emit.");
     }
 
     res.status(200).json({
@@ -346,7 +385,7 @@ router.delete("/delete-product/:id", async (req, res) => {
     console.error(`Error deleting product ${req.params.id}:`, error);
     res.status(500).json({
       success: false,
-      message: error.message || "Server error deleting product",
+      message: "Server error deleting product: " + error.message,
     });
   }
 });
@@ -368,60 +407,87 @@ router.delete("/delete-category/:id", async (req, res) => {
 
     // Delete category image file
     if (category.image) {
-      const filename = path.basename(category.image);
-      const filePath = path.join(__dirname, "../public/uploads", filename);
+      const filePath = path.join(
+        __dirname,
+        "../public/upload/category",
+        category.image
+      );
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     }
 
-    // Delete associated products
-    const deletedProductsCount = await Product.destroy({
+    // Delete associated products and their images
+    const products = await Product.findAll({
       where: { category_id: categoryId },
     });
-
-    console.log(
-      `Deleted ${deletedProductsCount} products associated with category ${categoryId}`
-    );
+    for (const product of products) {
+      if (product.images && Array.isArray(product.images)) {
+        product.images.forEach((imageUrl) => {
+          const filename = path.basename(imageUrl);
+          const filePath = path.join(__dirname, "../public/uploads", filename);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        });
+      }
+      await product.destroy();
+    }
 
     await category.destroy();
     console.log(`Category deleted successfully: ${categoryId}`);
 
-    // Emit real-time update (Socket.io) - KEPT from your original
+    // Emit real-time update (Socket.io)
     const io = req.app.get("io");
     if (io) {
-      io.emit("categoryUpdated", {
+      io.emit("categoryDeleted", {
         id: categoryId,
-        name: "Deleted Category",
       });
-    } else {
-      console.warn("Socket.IO instance not available for emit.");
     }
 
     res.status(200).json({
       success: true,
       message: "Category deleted successfully",
-      deletedProducts: deletedProductsCount,
+      deletedProducts: products.length,
     });
   } catch (error) {
     console.error(`Error deleting category ${req.params.id}:`, error);
     res.status(500).json({
       success: false,
-      message: error.message || "Server error deleting category",
+      message: "Server error deleting category: " + error.message,
     });
   }
 });
 
-// POST Remove Image - FIXED: Using correct Sequelize query
+// POST Remove Image
 router.post("/remove-image", async (req, res) => {
   try {
     const { imageUrl } = req.body;
     console.log(`Removing image: ${imageUrl}`);
 
-    const filename = path.basename(imageUrl);
-    const filePath = path.join(__dirname, "../public/uploads", filename);
+    if (!imageUrl) {
+      return res.status(400).json({
+        success: false,
+        message: "Image URL is required",
+      });
+    }
 
-    // Remove image from products - FIXED: Using proper JSON search
+    const filename = path.basename(imageUrl);
+    let filePath = null;
+
+    // Determine the correct file path based on image URL pattern
+    if (imageUrl.includes("/upload/category/")) {
+      filePath = path.join(__dirname, "../public/upload/category", filename);
+    } else if (imageUrl.includes("/uploads/")) {
+      filePath = path.join(__dirname, "../public/uploads", filename);
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid image URL",
+      });
+    }
+
+    // Remove image from products
     const products = await Product.findAll();
     let updatedProduct = null;
 
@@ -437,7 +503,9 @@ router.post("/remove-image", async (req, res) => {
     // Remove image from categories
     if (!updatedProduct) {
       const category = await Category.findOne({
-        where: { image: imageUrl },
+        where: {
+          image: filename, // Store only filename in database
+        },
       });
 
       if (category) {
@@ -452,7 +520,7 @@ router.post("/remove-image", async (req, res) => {
       console.log(`File deleted from disk: ${filePath}`);
     }
 
-    // Emit real-time update (Socket.io) - KEPT from your original
+    // Emit real-time update (Socket.io)
     if (updatedProduct) {
       const io = req.app.get("io");
       if (io) {
@@ -460,22 +528,12 @@ router.post("/remove-image", async (req, res) => {
           io.emit("categoryUpdated", {
             id: updatedProduct.data.id,
             name: updatedProduct.data.name,
-            image: updatedProduct.data.image,
+            image: null,
           });
         } else {
-          // Get category name for the product
-          const productCategory = await Category.findByPk(
-            updatedProduct.category_id
-          );
           io.emit("productUpdated", {
             id: updatedProduct.id,
-            title: updatedProduct.title,
             images: updatedProduct.images,
-            price: updatedProduct.price,
-            category: {
-              name: productCategory ? productCategory.name : "Unknown",
-            },
-            stockId: updatedProduct.stock_id,
           });
         }
       }
@@ -489,7 +547,7 @@ router.post("/remove-image", async (req, res) => {
     console.error("Error removing image:", error);
     res.status(500).json({
       success: false,
-      message: error.message || "Server error removing image",
+      message: "Server error removing image: " + error.message,
     });
   }
 });

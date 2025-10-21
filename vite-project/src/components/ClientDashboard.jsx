@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Link, useNavigate, useLocation } from "react-router-dom"; // Added imports
 
 const ClientDashboard = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
@@ -20,6 +21,10 @@ const ClientDashboard = () => {
   const notificationRef = useRef(null);
   const userMenuRef = useRef(null);
   const searchRef = useRef(null);
+
+  // Added React Router hooks
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // API base URL - pointing to the backend server
   const API_BASE_URL =
@@ -270,34 +275,41 @@ const ClientDashboard = () => {
     }
   };
 
-  // Navigation data
+  // Navigation handler function
+  const handleNavigation = (path, sectionId) => {
+    navigate(path);
+    setActiveSection(sectionId);
+    setShowMobileNav(false);
+  };
+
+  // Navigation data - Updated to use paths instead of href
   const mainNavItems = [
     {
       id: "dashboard",
       icon: "fa-home",
       label: "Dashboard",
-      href: "/client-page",
+      path: "/client",
     },
     {
       id: "orders",
       icon: "fa-box",
       label: "My Orders",
-      href: "/orders",
+      path: "/orders",
       badge: dashboardData?.orderCount || 0,
     },
-    { id: "products", icon: "fa-tags", label: "Products", href: "/products" },
+    { id: "products", icon: "fa-tags", label: "Products", path: "/products" },
     {
       id: "cart",
       icon: "fa-shopping-cart",
       label: "Cart",
-      href: "/cart",
+      path: "/cart",
       badge: dashboardData?.cartCount || 0,
     },
     {
       id: "messages",
       icon: "fa-envelope",
       label: "Messages",
-      href: "/messages",
+      path: "/messages",
       badge: dashboardData?.messageCount || 0,
       isNew: true,
     },
@@ -305,7 +317,7 @@ const ClientDashboard = () => {
       id: "payment-methods",
       icon: "fa-credit-card",
       label: "Payment",
-      href: "/payment-methods",
+      path: "/payment-methods",
     },
   ];
 
@@ -316,20 +328,20 @@ const ClientDashboard = () => {
         {
           icon: "fa-home",
           label: "Dashboard Home",
-          href: "/client-page",
+          path: "/client",
           section: "dashboard",
         },
         {
           icon: "fa-box",
           label: "My Orders",
-          href: "/orders",
+          path: "/orders",
           section: "orders",
           count: dashboardData?.orderCount || 0,
         },
         {
           icon: "fa-tags",
           label: "Products",
-          href: "/products",
+          path: "/products",
           section: "products",
         },
       ],
@@ -340,19 +352,19 @@ const ClientDashboard = () => {
         {
           icon: "fa-user-cog",
           label: "Account Details",
-          href: "/account",
+          path: "/account",
           section: "account",
         },
         {
           icon: "fa-map-marker-alt",
           label: "Addresses",
-          href: "/addresses",
+          path: "/addresses",
           section: "addresses",
         },
         {
           icon: "fa-credit-card",
           label: "Payment Methods",
-          href: "/payment-methods",
+          path: "/payment-methods",
           section: "payment-methods",
         },
       ],
@@ -457,14 +469,14 @@ const ClientDashboard = () => {
               <i className="fas fa-bars"></i>
             </motion.button>
 
-            {/* Main Navigation */}
+            {/* Main Navigation - FIXED: Using buttons with navigate */}
             <nav
               className={`${
                 showMobileNav ? "flex" : "hidden"
               } md:flex items-center gap-1 flex-1 justify-center flex-col md:flex-row absolute md:static top-20 left-0 right-0 bg-white md:bg-transparent p-4 md:p-0 z-40 border-t md:border-t-0 border-gray-200 md:border-none`}
             >
               {mainNavItems.map((item) => (
-                <motion.a
+                <motion.button
                   key={item.id}
                   whileHover={{ scale: 1.02, y: -2 }}
                   whileTap={{ scale: 0.98 }}
@@ -473,12 +485,7 @@ const ClientDashboard = () => {
                       ? "bg-gradient-to-r from-blue-600 to-purple-700 text-white shadow-lg shadow-blue-500/25"
                       : "text-gray-700 hover:bg-white hover:shadow-lg hover:border hover:border-gray-200"
                   }`}
-                  href={item.href}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setActiveSection(item.id);
-                    setShowMobileNav(false);
-                  }}
+                  onClick={() => handleNavigation(item.path, item.id)}
                   aria-label={item.label}
                 >
                   <i className={`fas ${item.icon} w-5 text-center`}></i>
@@ -496,7 +503,7 @@ const ClientDashboard = () => {
                       {item.badge > 99 ? "99+" : item.badge}
                     </motion.span>
                   )}
-                </motion.a>
+                </motion.button>
               ))}
             </nav>
 
@@ -527,13 +534,13 @@ const ClientDashboard = () => {
                     exit={{ opacity: 0, y: -10 }}
                   >
                     {searchResults.map((result) => (
-                      <a
+                      <Link
                         key={result._id}
-                        href={`/products/${result._id}`}
+                        to={`/products/${result._id}`}
                         className="block p-3 hover:bg-gray-50 text-gray-700 hover:text-blue-600"
                       >
                         {result.title}
-                      </a>
+                      </Link>
                     ))}
                   </motion.div>
                 )}
@@ -581,8 +588,8 @@ const ClientDashboard = () => {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -10, scale: 0.95 }}
                     >
-                      <a
-                        href="/account"
+                      <Link
+                        to="/account"
                         className="flex items-center gap-4 p-4 hover:bg-blue-50 rounded-t-2xl border-b border-gray-100 transition-colors"
                       >
                         <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
@@ -596,9 +603,9 @@ const ClientDashboard = () => {
                             Manage your account
                           </div>
                         </div>
-                      </a>
-                      <a
-                        href="/support"
+                      </Link>
+                      <Link
+                        to="/support"
                         className="flex items-center gap-4 p-4 hover:bg-blue-50 border-b border-gray-100 transition-colors"
                       >
                         <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
@@ -612,7 +619,7 @@ const ClientDashboard = () => {
                             Get assistance
                           </div>
                         </div>
-                      </a>
+                      </Link>
                       <button
                         onClick={handleLogout}
                         className="flex items-center gap-4 p-4 hover:bg-red-50 rounded-b-2xl text-red-600 transition-colors w-full text-left"
@@ -715,20 +722,18 @@ const ClientDashboard = () => {
                   </h4>
                   <div className="space-y-2">
                     {section.items.map((item, itemIndex) => (
-                      <motion.a
+                      <motion.button
                         key={`sidebar-item-${sectionIndex}-${itemIndex}`}
                         whileHover={{ x: 4, scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
-                        className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-medium transition-all group ${
+                        className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-medium transition-all group w-full text-left ${
                           activeSection === item.section
                             ? "bg-gradient-to-r from-blue-50 to-purple-50 text-blue-700 border border-blue-200 shadow-sm"
                             : "text-gray-700 hover:bg-gray-50 hover:shadow-sm hover:border hover:border-gray-200"
                         }`}
-                        href={item.href}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setActiveSection(item.section);
-                        }}
+                        onClick={() =>
+                          handleNavigation(item.path, item.section)
+                        }
                         aria-label={item.label}
                       >
                         <i
@@ -752,7 +757,7 @@ const ClientDashboard = () => {
                             {item.count > 99 ? "99+" : item.count}
                           </motion.span>
                         )}
-                      </motion.a>
+                      </motion.button>
                     ))}
                   </div>
                 </motion.div>
@@ -843,14 +848,14 @@ const ClientDashboard = () => {
                     </h3>
                     <p className="text-gray-600">Your latest purchases</p>
                   </div>
-                  <a
-                    href="/orders"
+                  <button
+                    onClick={() => handleNavigation("/orders", "orders")}
                     className="text-blue-600 font-semibold text-sm hover:text-blue-700 flex items-center gap-2"
                     aria-label="View all orders"
                   >
                     View All
                     <i className="fas fa-arrow-right"></i>
-                  </a>
+                  </button>
                 </div>
                 <div className="space-y-4">
                   {recentOrders.length > 0 ? (
@@ -917,14 +922,14 @@ const ClientDashboard = () => {
                     </h3>
                     <p className="text-gray-600">Based on your preferences</p>
                   </div>
-                  <a
-                    href="/products"
+                  <button
+                    onClick={() => handleNavigation("/products", "products")}
                     className="text-blue-600 font-semibold text-sm hover:text-blue-700 flex items-center gap-2"
                     aria-label="Browse more products"
                   >
                     Browse More
                     <i className="fas fa-arrow-right"></i>
-                  </a>
+                  </button>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   {recommendedProducts.length > 0 ? (

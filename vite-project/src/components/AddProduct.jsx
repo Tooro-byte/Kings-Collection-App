@@ -1,12 +1,12 @@
-// AddProduct.jsx
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 const AddProduct = () => {
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
   const [toasts, setToasts] = useState([]);
-  const [categories, setCategories] = useState([]); // Fetch if needed
+  const [categories, setCategories] = useState([]);
+  const [recentUpdates, setRecentUpdates] = useState([]);
   const [product, setProduct] = useState({
     title: "",
     description: "",
@@ -19,6 +19,94 @@ const AddProduct = () => {
   const [categoryPreview, setCategoryPreview] = useState("");
   const [productPreviews, setProductPreviews] = useState([]);
 
+  // API base URL
+  const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:3005";
+
+  // Helper function for authenticated requests
+  const makeAuthenticatedRequest = async (url, options = {}) => {
+    const defaultOptions = {
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+      ...options,
+    };
+
+    try {
+      const response = await fetch(`${API_BASE_URL}${url}`, defaultOptions);
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          window.location.href = "/login";
+          throw new Error("Authentication required");
+        }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error(`API Request failed for ${url}:`, error);
+      throw error;
+    }
+  };
+
+  // Fetch categories on component mount
+  useEffect(() => {
+    fetchCategories();
+    fetchRecentProducts();
+  }, []);
+
+  const fetchCategories = async () => {
+    try {
+      const response = await makeAuthenticatedRequest("/api/categories");
+      console.log("Categories API response:", response);
+
+      let categoriesData = [];
+      if (Array.isArray(response)) {
+        categoriesData = response;
+      } else if (response && Array.isArray(response.categories)) {
+        categoriesData = response.categories;
+      } else if (response && response.data) {
+        categoriesData = Array.isArray(response.data) ? response.data : [];
+      } else if (response && typeof response === "object") {
+        categoriesData = Object.values(response).find(Array.isArray) || [];
+      }
+
+      setCategories(categoriesData);
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+      showToast("error", "Failed to load categories");
+    }
+  };
+
+  const fetchRecentProducts = async () => {
+    try {
+      const response = await makeAuthenticatedRequest("/api/products");
+      if (response && response.success && Array.isArray(response.products)) {
+        // Get the 4 most recent products
+        const recent = response.products
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+          .slice(0, 4);
+
+        const recentUpdates = recent.map((product) => ({
+          id: product.id,
+          type: "product",
+          title: product.title,
+          price: product.price,
+          image: product.images?.[0] || "/images/placeholder.jpg",
+          category: product.category?.name || "Uncategorized",
+          timestamp: new Date(product.createdAt).toLocaleTimeString(),
+        }));
+
+        setRecentUpdates(recentUpdates);
+      }
+    } catch (error) {
+      console.error("Error fetching recent products:", error);
+    }
+  };
+
   // Show toast
   const showToast = useCallback((type, message) => {
     const id = Date.now();
@@ -29,7 +117,7 @@ const AddProduct = () => {
     );
   }, []);
 
-  // Handle form changes and image uploads (same as UpdateProduct.jsx)
+  // Handle form changes and image uploads
   const handleProductChange = (e) => {
     const { name, value } = e.target;
     setProduct((prev) => ({ ...prev, [name]: value }));
@@ -76,6 +164,19 @@ const AddProduct = () => {
   const addProduct = async (e) => {
     e.preventDefault();
     setSubmitting(true);
+
+    if (
+      !product.title ||
+      !product.description ||
+      !product.price ||
+      !product.stockId ||
+      !product.category
+    ) {
+      showToast("error", "Please fill in all required fields");
+      setSubmitting(false);
+      return;
+    }
+
     try {
       const formData = new FormData();
       formData.append("title", product.title);
@@ -83,23 +184,65 @@ const AddProduct = () => {
       formData.append("category", product.category);
       formData.append("price", product.price);
       formData.append("stockId", product.stockId);
-      product.images.forEach((image) => formData.append("images", image));
 
-      const response = await fetch("/api/products", {
+      product.images.forEach((image) => {
+        formData.append("images", image);
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/products`, {
         method: "POST",
+        credentials: "include",
         body: formData,
       });
 
+      let responseData;
+      try {
+        responseData = await response.json();
+      } catch (parseError) {
+        responseData = { message: "Invalid server response" };
+      }
+
       if (response.ok) {
-        showToast("success", "Product added successfully");
-        navigate("/admin");
+        showToast("success", "Product added successfully!");
+
+        // Add to recent updates
+        const newUpdate = {
+          id: Date.now(),
+          type: "product",
+          title: product.title,
+          price: product.price,
+          image: productPreviews[0] || "/images/placeholder.jpg",
+          category:
+            categories.find((cat) => (cat._id || cat.id) === product.category)
+              ?.name || "Uncategorized",
+          timestamp: new Date().toLocaleTimeString(),
+        };
+
+        setRecentUpdates((prev) => [newUpdate, ...prev.slice(0, 3)]);
+
+        // Reset form
+        setProduct({
+          title: "",
+          description: "",
+          category: "",
+          price: "",
+          stockId: "",
+          images: [],
+        });
+        setProductPreviews([]);
+
+        // Refresh categories
+        await fetchCategories();
       } else {
-        const data = await response.json().catch(() => ({}));
-        showToast("error", data.message || "Failed to add product");
+        showToast(
+          "error",
+          responseData.message ||
+            `Failed to add product: ${response.status} ${response.statusText}`
+        );
       }
     } catch (error) {
-      console.error("Error adding product:", error);
-      showToast("error", "Network error adding product");
+      console.error("❌ Network error adding product:", error);
+      showToast("error", `Network error: ${error.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -109,32 +252,90 @@ const AddProduct = () => {
   const addCategory = async (e) => {
     e.preventDefault();
     setSubmitting(true);
+
+    if (!category.name) {
+      showToast("error", "Category name is required");
+      setSubmitting(false);
+      return;
+    }
+
     try {
       const formData = new FormData();
       formData.append("name", category.name);
       if (category.image) formData.append("image", category.image);
 
-      const response = await fetch("/api/categories", {
+      const response = await fetch(`${API_BASE_URL}/api/categories`, {
         method: "POST",
+        credentials: "include",
         body: formData,
       });
 
+      let responseData;
+      try {
+        responseData = await response.json();
+      } catch (parseError) {
+        responseData = { message: "Invalid server response" };
+      }
+
       if (response.ok) {
-        showToast("success", "Category added successfully");
-        navigate("/admin");
+        showToast("success", "Category added successfully!");
+
+        // Add to recent updates
+        const newUpdate = {
+          id: Date.now(),
+          type: "category",
+          name: category.name,
+          image: categoryPreview || "/images/placeholder.jpg",
+          timestamp: new Date().toLocaleTimeString(),
+        };
+
+        setRecentUpdates((prev) => [newUpdate, ...prev.slice(0, 3)]);
+
+        // Reset form
+        setCategory({ name: "", image: null });
+        setCategoryPreview("");
+
+        // Refresh categories list
+        await fetchCategories();
       } else {
-        const data = await response.json().catch(() => ({}));
-        showToast("error", data.message || "Failed to add category");
+        showToast(
+          "error",
+          responseData.message || `Failed to add category: ${response.status}`
+        );
       }
     } catch (error) {
-      console.error("Error adding category:", error);
-      showToast("error", "Network error adding category");
+      console.error("❌ Network error adding category:", error);
+      showToast("error", `Network error: ${error.message}`);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Similar UI as UpdateProduct.jsx, but with "Add" labels and no delete buttons
+  const removeProductImage = (index) => {
+    setProductPreviews((prev) => prev.filter((_, i) => i !== index));
+    setProduct((prev) => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index),
+    }));
+  };
+
+  // Character count helpers
+  const getTitleCharCount = () => {
+    return `${product.title.length}/50`;
+  };
+
+  const getDescriptionCharCount = () => {
+    return `${product.description.length}/100`;
+  };
+
+  // Helper function to get full image URL
+  const getFullImageUrl = (imagePath) => {
+    if (!imagePath) return "/images/placeholder.jpg";
+    if (imagePath.startsWith("http") || imagePath.startsWith("/"))
+      return imagePath;
+    return `${API_BASE_URL}${imagePath}`;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <nav className="fixed top-0 left-0 right-0 h-20 bg-white/95 backdrop-blur-xl shadow-lg border-b border-blue-200/30 z-50">
@@ -203,7 +404,7 @@ const AddProduct = () => {
             <form onSubmit={addCategory} className="space-y-6">
               <div>
                 <label className="block text-sm font-semibold text-gray-800 mb-2">
-                  Category Name
+                  Category Name *
                 </label>
                 <input
                   type="text"
@@ -217,19 +418,22 @@ const AddProduct = () => {
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-800 mb-2">
-                  Category Icon
+                  Category Image
                 </label>
                 <div className="relative p-6 border-2 border-dashed border-blue-300/50 rounded-2xl bg-blue-50/50 hover:border-blue-400 transition-all duration-300">
                   <input
                     type="file"
                     onChange={handleCategoryImage}
-                    accept="image/jpeg,image/png,image/gif"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
                   <div className="text-center">
                     <i className="fas fa-cloud-upload-alt text-2xl text-blue-500 mb-2"></i>
                     <p className="text-blue-600 font-medium">
-                      Click to upload category icon
+                      Click to upload category image
+                    </p>
+                    <p className="text-blue-400 text-sm mt-1">
+                      Recommended: 500x500px, Max 5MB
                     </p>
                   </div>
                   {categoryPreview && (
@@ -247,10 +451,10 @@ const AddProduct = () => {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50"
+                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <i className="fas fa-save"></i>
-                  <span>{submitting ? "Saving..." : "Add Category"}</span>
+                  <span>{submitting ? "Adding..." : "Add Category"}</span>
                 </button>
               </div>
             </form>
@@ -270,7 +474,7 @@ const AddProduct = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">
-                    Product Title
+                    Product Title *
                   </label>
                   <input
                     type="text"
@@ -282,10 +486,13 @@ const AddProduct = () => {
                     className="w-full px-4 py-3 rounded-2xl border-2 border-blue-200/50 focus:border-blue-500 focus:ring-4 focus:ring-blue-200/30 transition-all duration-300 outline-none"
                     required
                   />
+                  <div className="text-right text-xs text-gray-500 mt-1">
+                    {getTitleCharCount()}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">
-                    Category
+                    Category *
                   </label>
                   <select
                     name="category"
@@ -296,16 +503,21 @@ const AddProduct = () => {
                   >
                     <option value="">Select Category</option>
                     {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
+                      <option key={cat._id || cat.id} value={cat._id || cat.id}>
                         {cat.name}
                       </option>
                     ))}
                   </select>
+                  {categories.length === 0 && (
+                    <p className="text-xs text-orange-600 mt-1">
+                      No categories available. Please add a category first.
+                    </p>
+                  )}
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-800 mb-2">
-                  Description
+                  Description *
                 </label>
                 <textarea
                   name="description"
@@ -317,11 +529,14 @@ const AddProduct = () => {
                   className="w-full px-4 py-3 rounded-2xl border-2 border-blue-200/50 focus:border-blue-500 focus:ring-4 focus:ring-blue-200/30 transition-all duration-300 outline-none resize-none"
                   required
                 />
+                <div className="text-right text-xs text-gray-500 mt-1">
+                  {getDescriptionCharCount()}
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">
-                    Price (UGX)
+                    Price (UGX) *
                   </label>
                   <input
                     type="number"
@@ -337,7 +552,7 @@ const AddProduct = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">
-                    Stock ID
+                    Stock ID *
                   </label>
                   <input
                     type="number"
@@ -359,7 +574,7 @@ const AddProduct = () => {
                   <input
                     type="file"
                     onChange={handleProductImages}
-                    accept="image/jpeg,image/png,image/gif"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
                     multiple
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
@@ -368,35 +583,33 @@ const AddProduct = () => {
                     <p className="text-blue-600 font-medium">
                       Click to upload product images
                     </p>
+                    <p className="text-blue-400 text-sm mt-1">
+                      Maximum 8 images, 10MB each
+                    </p>
                   </div>
                   {productPreviews.length > 0 && (
-                    <div className="mt-6 flex flex-wrap gap-4">
-                      {productPreviews.map((preview, index) => (
-                        <div key={index} className="relative group">
-                          <img
-                            src={preview}
-                            alt={`Product preview ${index + 1}`}
-                            className="w-20 h-20 object-cover rounded-xl shadow-lg group-hover:scale-105 transition-transform duration-300"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setProductPreviews((prev) =>
-                                prev.filter((_, i) => i !== index)
-                              );
-                              setProduct((prev) => ({
-                                ...prev,
-                                images: prev.images.filter(
-                                  (_, i) => i !== index
-                                ),
-                              }));
-                            }}
-                            className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition-colors duration-300 shadow-lg"
-                          >
-                            <i className="fas fa-times"></i>
-                          </button>
-                        </div>
-                      ))}
+                    <div className="mt-6">
+                      <p className="text-sm text-gray-600 mb-3">
+                        {productPreviews.length} image(s) selected
+                      </p>
+                      <div className="flex flex-wrap gap-4">
+                        {productPreviews.map((preview, index) => (
+                          <div key={index} className="relative group">
+                            <img
+                              src={preview}
+                              alt={`Product preview ${index + 1}`}
+                              className="w-20 h-20 object-cover rounded-xl shadow-lg group-hover:scale-105 transition-transform duration-300"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeProductImage(index)}
+                              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition-colors duration-300 shadow-lg"
+                            >
+                              <i className="fas fa-times"></i>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -404,15 +617,112 @@ const AddProduct = () => {
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50"
+                  disabled={submitting || categories.length === 0}
+                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <i className="fas fa-save"></i>
-                  <span>{submitting ? "Saving..." : "Add Product"}</span>
+                  <span>{submitting ? "Adding..." : "Add Product"}</span>
                 </button>
               </div>
             </form>
           </div>
+        </div>
+
+        {/* Real-time Updates Section */}
+        <div className="bg-white/95 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-white/50">
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-2xl font-black bg-gradient-to-r from-blue-900 to-blue-600 bg-clip-text text-transparent">
+              Recent Activity
+            </h2>
+            <div className="flex items-center space-x-2 text-green-600">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-sm font-semibold">Live Updates</span>
+            </div>
+          </div>
+
+          {recentUpdates.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {recentUpdates.map((update) => (
+                <div
+                  key={update.id}
+                  className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-4 shadow-lg hover:shadow-xl transition-all duration-300 border border-blue-100"
+                >
+                  <div className="flex items-center space-x-3 mb-3">
+                    <div
+                      className={`p-2 rounded-xl ${
+                        update.type === "product"
+                          ? "bg-green-100 text-green-600"
+                          : "bg-blue-100 text-blue-600"
+                      }`}
+                    >
+                      <i
+                        className={`fas fa-${
+                          update.type === "product" ? "box" : "tags"
+                        }`}
+                      ></i>
+                    </div>
+                    <span
+                      className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                        update.type === "product"
+                          ? "bg-green-100 text-green-700"
+                          : "bg-blue-100 text-blue-700"
+                      }`}
+                    >
+                      {update.type === "product" ? "PRODUCT" : "CATEGORY"}
+                    </span>
+                  </div>
+
+                  <div className="mb-3">
+                    <img
+                      src={getFullImageUrl(update.image)}
+                      alt={
+                        update.type === "product" ? update.title : update.name
+                      }
+                      className="w-full h-32 object-cover rounded-xl shadow-md"
+                      onError={(e) => {
+                        e.target.src = "/images/placeholder.jpg";
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <h3 className="font-semibold text-gray-800 text-sm mb-1 truncate">
+                      {update.type === "product" ? update.title : update.name}
+                    </h3>
+                    {update.type === "product" ? (
+                      <div className="space-y-1">
+                        <p className="text-green-600 font-bold text-sm">
+                          UGX {parseFloat(update.price).toLocaleString()}
+                        </p>
+                        <p className="text-gray-600 text-xs">
+                          {update.category}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-blue-600 text-xs font-medium">
+                        New Category Added
+                      </p>
+                    )}
+                    <p className="text-gray-400 text-xs mt-2">
+                      {update.timestamp}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <div className="text-6xl mb-4 text-gray-300">
+                <i className="fas fa-history"></i>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-500 mb-2">
+                No Recent Activity
+              </h3>
+              <p className="text-gray-400">
+                Add products or categories to see them appear here
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
