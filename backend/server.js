@@ -527,13 +527,6 @@ app.get("/api/cart/count", ensureAuthenticated, async (req, res) => {
 // ORDER ROUTES - REMOVED DUPLICATES (Using external ordersRoute)
 // ============================================================================
 
-// REMOVED: All the duplicate order routes that were causing validation errors
-// The ordersRoute.js file will handle all /api/orders requests
-
-// ============================================================================
-// API ROUTES
-// ============================================================================
-
 // Health check endpoint
 app.get("/health", async (req, res) => {
   try {
@@ -675,9 +668,6 @@ app.get("/api/dashboard", ensureAuthenticated, async (req, res) => {
 // PRODUCT ROUTES
 // ============================================================================
 
-/**
- * GET /api/products/recommended - Get recommended products
- */
 app.get("/api/products/recommended", ensureAuthenticated, async (req, res) => {
   try {
     const products = await Product.findAll({
@@ -755,9 +745,6 @@ app.get("/api/products/search", ensureAuthenticated, async (req, res) => {
 // ADMIN ROUTES
 // ============================================================================
 
-/**
- * GET /api/admin/dashboard - Admin dashboard summary data
- */
 app.get(
   "/api/admin/dashboard",
   ensureAuthenticated,

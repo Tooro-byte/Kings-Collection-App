@@ -68,6 +68,38 @@ const OrdersPage = () => {
     fetchOrders();
   }, []);
 
+  // NEW FUNCTION: Clear all orders
+  const clearAllOrders = async () => {
+    if (
+      !window.confirm(
+        "Are you sure you want to clear ALL orders? This action cannot be undone and will delete all order records permanently."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const response = await makeAuthenticatedRequest(
+        `/api/admin/orders/clear`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (response.success) {
+        setOrders([]);
+        setTotalPages(1);
+        setCurrentPage(1);
+        alert("All orders have been cleared successfully");
+      } else {
+        alert("Failed to clear orders");
+      }
+    } catch (error) {
+      console.error("Error clearing orders:", error);
+      alert("Error clearing orders");
+    }
+  };
+
   const updateOrderStatus = async (orderId, status, notes = "") => {
     try {
       const response = await makeAuthenticatedRequest(
@@ -167,17 +199,34 @@ const OrdersPage = () => {
     });
   };
 
+  // UPDATED FUNCTION: Better image handling with API base URL
   const getProductImage = (item) => {
-    // Handle different possible image sources
+    // Handle different possible image sources with proper URL construction
+    let imageUrl = "";
+
     if (item.product?.images?.[0]) {
-      return item.product.images[0];
+      imageUrl = item.product.images[0];
+    } else if (item.image) {
+      imageUrl = item.image;
+    } else if (item.product?.image) {
+      imageUrl = item.product.image;
+    } else if (item.images?.[0]) {
+      imageUrl = item.images[0];
     }
-    if (item.image) {
-      return item.image;
+
+    // Ensure the image URL is complete
+    if (imageUrl) {
+      if (imageUrl.startsWith("http")) {
+        return imageUrl;
+      } else if (imageUrl.startsWith("/uploads/")) {
+        return `${API_BASE_URL}${imageUrl}`;
+      } else if (imageUrl.startsWith("/")) {
+        return `${API_BASE_URL}${imageUrl}`;
+      } else {
+        return `${API_BASE_URL}/uploads/${imageUrl}`;
+      }
     }
-    if (item.product?.image) {
-      return item.product.image;
-    }
+
     // Fallback to a nice placeholder
     return "https://images.unsplash.com/photo-1560769629-975ec94e6a86?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=100&h=100&q=80";
   };
@@ -366,9 +415,9 @@ const OrdersPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-16 h-16 border-4 border-orange-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-700 font-medium">Loading Orders...</p>
         </div>
       </div>
@@ -376,15 +425,51 @@ const OrdersPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50 py-8">
+      {/* UPDATED: Orange Navigation Bar */}
+      <nav className="bg-gradient-to-r from-orange-600 to-amber-600 shadow-lg border-b border-orange-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
+                <span className="text-orange-600 font-bold text-lg">KC</span>
+              </div>
+              <h1 className="text-2xl font-bold text-white">
+                Kings Collections
+              </h1>
+            </div>
+            <div className="flex items-center space-x-4">
+              <a
+                href="/admin/dashboard"
+                className="text-white hover:text-orange-200 transition-colors px-3 py-2 rounded-lg hover:bg-orange-700"
+              >
+                Dashboard
+              </a>
+              <a
+                href="/admin/products"
+                className="text-white hover:text-orange-200 transition-colors px-3 py-2 rounded-lg hover:bg-orange-700"
+              >
+                Products
+              </a>
+              <a
+                href="/admin/orders"
+                className="text-white bg-orange-800 px-3 py-2 rounded-lg font-semibold"
+              >
+                Orders
+              </a>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-8 text-center"
         >
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent mb-2">
             Orders Management
           </h1>
           <p className="text-gray-600 text-lg">
@@ -408,7 +493,7 @@ const OrdersPage = () => {
                     setStatusFilter(e.target.value);
                     fetchOrders(1, e.target.value);
                   }}
-                  className="appearance-none bg-white border border-gray-300 rounded-xl px-4 py-3 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="appearance-none bg-white border border-gray-300 rounded-xl px-4 py-3 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 >
                   <option value="">All Statuses</option>
                   <option value="pending">Pending</option>
@@ -425,7 +510,7 @@ const OrdersPage = () => {
 
               <div className="flex items-center gap-4 text-sm text-gray-600">
                 <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                  <span className="w-2 h-2 bg-orange-500 rounded-full"></span>
                   Total: {orders.length}
                 </span>
                 <span className="flex items-center gap-2">
@@ -435,13 +520,26 @@ const OrdersPage = () => {
               </div>
             </div>
 
-            <button
-              onClick={() => fetchOrders(currentPage, statusFilter)}
-              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl text-sm font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl"
-            >
-              <i className="fas fa-sync-alt"></i>
-              Refresh Orders
-            </button>
+            <div className="flex gap-3">
+              {/* NEW: Clear All Orders Button */}
+              {orders.length > 0 && (
+                <button
+                  onClick={clearAllOrders}
+                  className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+                >
+                  <i className="fas fa-trash-alt"></i>
+                  Clear All Orders
+                </button>
+              )}
+
+              <button
+                onClick={() => fetchOrders(currentPage, statusFilter)}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-xl text-sm font-medium hover:from-orange-700 hover:to-amber-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+              >
+                <i className="fas fa-sync-alt"></i>
+                Refresh Orders
+              </button>
+            </div>
           </div>
         </motion.div>
 
@@ -460,7 +558,7 @@ const OrdersPage = () => {
                 <div className="p-6 border-b border-gray-200">
                   <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl flex items-center justify-center text-white font-bold">
+                      <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-amber-500 rounded-xl flex items-center justify-center text-white font-bold">
                         #{order.orderId?.slice(-4)}
                       </div>
                       <div>
@@ -481,7 +579,7 @@ const OrdersPage = () => {
                         {order.status.charAt(0).toUpperCase() +
                           order.status.slice(1)}
                       </span>
-                      <span className="text-xl font-bold text-blue-600">
+                      <span className="text-xl font-bold text-orange-600">
                         {formatCurrency(order.total)}
                       </span>
                     </div>
@@ -640,8 +738,8 @@ const OrdersPage = () => {
               animate={{ opacity: 1, y: 0 }}
               className="col-span-2 text-center py-16"
             >
-              <div className="w-24 h-24 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <i className="fas fa-shopping-cart text-3xl text-blue-600"></i>
+              <div className="w-24 h-24 bg-gradient-to-r from-orange-100 to-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <i className="fas fa-shopping-cart text-3xl text-orange-600"></i>
               </div>
               <h3 className="text-2xl font-bold text-gray-700 mb-3">
                 No Orders Found
@@ -656,7 +754,7 @@ const OrdersPage = () => {
                   setStatusFilter("");
                   fetchOrders();
                 }}
-                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-purple-700 transition-all duration-200"
+                className="px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-xl font-semibold hover:from-orange-700 hover:to-amber-700 transition-all duration-200"
               >
                 <i className="fas fa-sync-alt mr-2"></i>
                 Reset Filters
@@ -680,7 +778,7 @@ const OrdersPage = () => {
                     onClick={() => fetchOrders(page, statusFilter)}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                       currentPage === page
-                        ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
+                        ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg"
                         : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
                     }`}
                   >

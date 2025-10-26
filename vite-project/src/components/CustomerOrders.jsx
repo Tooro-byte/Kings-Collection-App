@@ -7,6 +7,7 @@ const CustomerOrders = () => {
   const [filter, setFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [trackingOrder, setTrackingOrder] = useState(null);
+  const [clearingOrders, setClearingOrders] = useState(false);
 
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:3005";
@@ -68,6 +69,40 @@ const CustomerOrders = () => {
     }
   };
 
+  // UPDATED: Clear all orders function with better error handling
+  const clearAllOrders = async () => {
+    if (
+      !window.confirm(
+        "Are you sure you want to clear ALL your order history? This action cannot be undone and will permanently delete all your order records."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setClearingOrders(true);
+      const response = await makeAuthenticatedRequest(`/api/orders/clear`, {
+        method: "DELETE",
+      });
+
+      if (response.success) {
+        setOrders([]);
+        alert(
+          `✅ ${response.message} (${
+            response.ordersDeleted || 0
+          } orders deleted)`
+        );
+      } else {
+        alert("❌ Failed to clear orders");
+      }
+    } catch (error) {
+      console.error("Error clearing orders:", error);
+      alert(`❌ Error clearing orders: ${error.message}`);
+    } finally {
+      setClearingOrders(false);
+    }
+  };
+
   const formatPrice = (price) => {
     return parseFloat(price || 0).toLocaleString("en-UG");
   };
@@ -122,6 +157,38 @@ const CustomerOrders = () => {
     return statusFlow.indexOf(status);
   };
 
+  // UPDATED FUNCTION: Better image handling with API base URL
+  const getProductImage = (item) => {
+    // Handle different possible image sources with proper URL construction
+    let imageUrl = "";
+
+    if (item.product?.images?.[0]) {
+      imageUrl = item.product.images[0];
+    } else if (item.image) {
+      imageUrl = item.image;
+    } else if (item.product?.image) {
+      imageUrl = item.product.image;
+    } else if (item.images?.[0]) {
+      imageUrl = item.images[0];
+    }
+
+    // Ensure the image URL is complete
+    if (imageUrl) {
+      if (imageUrl.startsWith("http")) {
+        return imageUrl;
+      } else if (imageUrl.startsWith("/uploads/")) {
+        return `${API_BASE_URL}${imageUrl}`;
+      } else if (imageUrl.startsWith("/")) {
+        return `${API_BASE_URL}${imageUrl}`;
+      } else {
+        return `${API_BASE_URL}/uploads/${imageUrl}`;
+      }
+    }
+
+    // Fallback to a nice placeholder
+    return "https://images.unsplash.com/photo-1560769629-975ec94e6a86?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=100&h=100&q=80";
+  };
+
   const TrackOrderModal = ({ order, onClose }) => {
     const statusFlow = [
       { status: "pending", label: "Pending", description: "Order received" },
@@ -150,10 +217,10 @@ const CustomerOrders = () => {
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-gray-800 rounded-2xl p-6 max-w-md w-full border border-gold-500"
+          className="bg-gray-800 rounded-2xl p-6 max-w-md w-full border border-orange-500"
         >
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-bold text-gold-500">Track Order</h3>
+            <h3 className="text-xl font-bold text-orange-500">Track Order</h3>
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-white text-2xl"
@@ -173,7 +240,7 @@ const CustomerOrders = () => {
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center ${
                       index <= currentStatusIndex
-                        ? "bg-gold-500 text-gray-900"
+                        ? "bg-orange-500 text-gray-900"
                         : "bg-gray-600 text-gray-400"
                     }`}
                   >
@@ -183,7 +250,7 @@ const CustomerOrders = () => {
                     <div
                       className={`flex-grow w-1 mt-2 ${
                         index < currentStatusIndex
-                          ? "bg-gold-500"
+                          ? "bg-orange-500"
                           : "bg-gray-600"
                       }`}
                     ></div>
@@ -193,7 +260,7 @@ const CustomerOrders = () => {
                   <div
                     className={`font-semibold ${
                       index <= currentStatusIndex
-                        ? "text-gold-500"
+                        ? "text-orange-500"
                         : "text-gray-400"
                     }`}
                   >
@@ -248,7 +315,7 @@ const CustomerOrders = () => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-gold-500 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-orange-500 mx-auto mb-4"></div>
           <p className="text-white text-lg">Loading your orders...</p>
         </div>
       </div>
@@ -257,15 +324,15 @@ const CustomerOrders = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-800">
-      {/* Navigation Bar */}
-      <nav className="bg-gray-900 bg-opacity-95 backdrop-blur-lg sticky top-0 z-40 border-b-2 border-gold-500">
+      {/* UPDATED: Orange Navigation Bar */}
+      <nav className="bg-gradient-to-r from-orange-600 to-amber-600 shadow-lg border-b border-orange-700 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-gold-500 rounded-full flex items-center justify-center">
-                <span className="text-gray-900 font-bold text-sm">K</span>
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
+                <span className="text-orange-600 font-bold text-lg">KC</span>
               </div>
-              <h1 className="text-2xl font-bold text-gold-500">
+              <h1 className="text-2xl font-bold text-white">
                 Kings Collections
               </h1>
             </div>
@@ -273,21 +340,28 @@ const CustomerOrders = () => {
             <div className="flex items-center space-x-6">
               <a
                 href="/products"
-                className="flex items-center space-x-2 text-white hover:text-gold-500 transition-colors duration-200 px-3 py-2 rounded-lg hover:bg-gold-500 hover:bg-opacity-10"
+                className="flex items-center space-x-2 text-white hover:text-orange-200 transition-colors duration-200 px-3 py-2 rounded-lg hover:bg-orange-700"
               >
                 <span>🛍️</span>
                 <span>Shop</span>
               </a>
               <a
                 href="/cart"
-                className="flex items-center space-x-2 text-white hover:text-gold-500 transition-colors duration-200 px-3 py-2 rounded-lg hover:bg-gold-500 hover:bg-opacity-10"
+                className="flex items-center space-x-2 text-white hover:text-orange-200 transition-colors duration-200 px-3 py-2 rounded-lg hover:bg-orange-700"
               >
                 <span>🛒</span>
                 <span>Cart</span>
               </a>
               <a
+                href="/orders"
+                className="flex items-center space-x-2 text-white bg-orange-800 px-3 py-2 rounded-lg font-semibold"
+              >
+                <span>📦</span>
+                <span>Orders</span>
+              </a>
+              <a
                 href="/profile"
-                className="flex items-center space-x-2 text-white hover:text-gold-500 transition-colors duration-200 px-3 py-2 rounded-lg hover:bg-gold-500 hover:bg-opacity-10"
+                className="flex items-center space-x-2 text-white hover:text-orange-200 transition-colors duration-200 px-3 py-2 rounded-lg hover:bg-orange-700"
               >
                 <span>👤</span>
                 <span>Profile</span>
@@ -299,10 +373,10 @@ const CustomerOrders = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="bg-gray-800 bg-opacity-80 backdrop-blur-lg rounded-2xl p-8 border border-gold-500 mb-8 transform hover:scale-105 transition-transform duration-300">
+        <div className="bg-gray-800 bg-opacity-80 backdrop-blur-lg rounded-2xl p-8 border border-orange-500 mb-8 transform hover:scale-105 transition-transform duration-300">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h1 className="text-4xl font-bold text-gold-500 mb-2">
+              <h1 className="text-4xl font-bold text-orange-500 mb-2">
                 My Orders
               </h1>
               <p className="text-gray-400 text-lg">
@@ -314,7 +388,7 @@ const CustomerOrders = () => {
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-gold-500"
+                className="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
               >
                 <option value="all">All Orders</option>
                 <option value="pending">Pending</option>
@@ -324,39 +398,64 @@ const CustomerOrders = () => {
                 <option value="delivered">Delivered</option>
                 <option value="cancelled">Cancelled</option>
               </select>
+
+              {/* UPDATED: Clear Orders Button with loading state */}
+              {orders.length > 0 && (
+                <button
+                  onClick={clearAllOrders}
+                  disabled={clearingOrders}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed transition-all duration-200"
+                >
+                  {clearingOrders ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Clearing...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-trash-alt"></i>
+                      Clear All Orders
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
 
         {!Array.isArray(orders) || orders.length === 0 ? (
-          <div className="bg-gray-800 bg-opacity-80 backdrop-blur-lg rounded-2xl p-12 text-center border border-gold-500">
+          <div className="bg-gray-800 bg-opacity-80 backdrop-blur-lg rounded-2xl p-12 text-center border border-orange-500">
             <div className="text-6xl mb-4">📦</div>
             <h2 className="text-2xl font-bold text-white mb-4">
-              No orders yet
+              {clearingOrders ? "Clearing Orders..." : "No orders yet"}
             </h2>
             <p className="text-gray-400 mb-6">
-              Start shopping to see your orders here
+              {clearingOrders
+                ? "Please wait while we clear your order history..."
+                : "Start shopping to see your orders here"}
             </p>
-            <a
-              href="/products"
-              className="bg-gold-500 hover:bg-gold-600 text-gray-900 px-8 py-3 rounded-lg font-bold text-lg transition-colors duration-200 inline-flex items-center space-x-2"
-            >
-              <span>🛍️</span>
-              <span>Start Shopping</span>
-            </a>
+            {!clearingOrders && (
+              <a
+                href="/products"
+                className="bg-orange-500 hover:bg-orange-600 text-gray-900 px-8 py-3 rounded-lg font-bold text-lg transition-colors duration-200 inline-flex items-center space-x-2"
+              >
+                <span>🛍️</span>
+                <span>Start Shopping</span>
+              </a>
+            )}
           </div>
         ) : (
           <div className="space-y-6">
             {filteredOrders.map((order) => (
               <div
                 key={order._id || order.id}
-                className="bg-gray-800 bg-opacity-80 backdrop-blur-lg rounded-2xl p-6 border border-gray-700 hover:border-gold-500 transition-all duration-300 hover:shadow-2xl hover:shadow-gold-500/20 transform hover:-translate-y-1"
+                className="bg-gray-800 bg-opacity-80 backdrop-blur-lg rounded-2xl p-6 border border-gray-700 hover:border-orange-500 transition-all duration-300 hover:shadow-2xl hover:shadow-orange-500/20 transform hover:-translate-y-1"
               >
                 {/* Order Header */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
                   <div className="flex items-center space-x-4">
-                    <div className="bg-gold-500 bg-opacity-20 p-3 rounded-xl border border-gold-500">
-                      <span className="text-gold-500 text-2xl">📦</span>
+                    <div className="bg-orange-500 bg-opacity-20 p-3 rounded-xl border border-orange-500">
+                      <span className="text-orange-500 text-2xl">📦</span>
                     </div>
                     <div>
                       <h3 className="text-xl font-bold text-white">
@@ -378,7 +477,7 @@ const CustomerOrders = () => {
                       {getStatusText(order.status)}
                     </div>
                     <div className="text-right">
-                      <div className="text-2xl font-bold text-gold-500">
+                      <div className="text-2xl font-bold text-orange-500">
                         UGX {formatPrice(order.totalPrice || order.total)}
                       </div>
                       <div className="text-gray-400 text-sm">
@@ -413,7 +512,7 @@ const CustomerOrders = () => {
                   </div>
                 )}
 
-                {/* Order Items */}
+                {/* Order Items - UPDATED with proper image display */}
                 <div className="border-t border-gray-700 pt-6">
                   <h4 className="text-lg font-semibold text-white mb-4">
                     Order Items
@@ -427,15 +526,12 @@ const CustomerOrders = () => {
                           className="flex items-center space-x-4 p-4 bg-gray-900 rounded-xl border border-gray-700"
                         >
                           <img
-                            src={
-                              item.product?.images?.[0] ||
-                              item.image ||
-                              "/images/placeholder.jpg"
-                            }
+                            src={getProductImage(item)}
                             alt={item.product?.title || item.title || "Product"}
-                            className="w-16 h-16 object-cover rounded-lg"
+                            className="w-16 h-16 object-cover rounded-lg border border-gray-600"
                             onError={(e) => {
-                              e.target.src = "/images/placeholder.jpg";
+                              e.target.src =
+                                "https://images.unsplash.com/photo-1560769629-975ec94e6a86?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=100&h=100&q=80";
                             }}
                           />
                           <div className="flex-1">
@@ -450,7 +546,7 @@ const CustomerOrders = () => {
                             </p>
                           </div>
                           <div className="text-right">
-                            <div className="text-gold-500 font-bold">
+                            <div className="text-orange-500 font-bold">
                               UGX{" "}
                               {formatPrice(item.product?.price || item.price)}
                             </div>
@@ -524,7 +620,7 @@ const CustomerOrders = () => {
               </div>
               <div className="text-purple-200">In Progress</div>
             </div>
-            <div className="bg-gold-500 bg-opacity-20 rounded-2xl p-6 border border-gold-500 text-center">
+            <div className="bg-orange-500 bg-opacity-20 rounded-2xl p-6 border border-orange-500 text-center">
               <div className="text-3xl font-bold text-white mb-2">
                 UGX{" "}
                 {formatPrice(
@@ -535,7 +631,7 @@ const CustomerOrders = () => {
                   )
                 )}
               </div>
-              <div className="text-gold-200">Total Spent</div>
+              <div className="text-orange-200">Total Spent</div>
             </div>
           </div>
         )}
