@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 
-const Orders = () => {
+const CustomerOrders = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [trackingOrder, setTrackingOrder] = useState(null);
 
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:3005";
@@ -89,6 +91,8 @@ const Orders = () => {
       shipped: "bg-indigo-500 text-indigo-900",
       delivered: "bg-green-500 text-green-900",
       cancelled: "bg-red-500 text-red-900",
+      approved: "bg-green-500 text-green-900",
+      rejected: "bg-red-500 text-red-900",
     };
     return colors[status] || "bg-gray-500 text-gray-900";
   };
@@ -101,8 +105,136 @@ const Orders = () => {
       shipped: "Shipped",
       delivered: "Delivered",
       cancelled: "Cancelled",
+      approved: "Approved",
+      rejected: "Rejected",
     };
     return texts[status] || status;
+  };
+
+  const getStatusIndex = (status) => {
+    const statusFlow = [
+      "pending",
+      "approved",
+      "processing",
+      "shipped",
+      "delivered",
+    ];
+    return statusFlow.indexOf(status);
+  };
+
+  const TrackOrderModal = ({ order, onClose }) => {
+    const statusFlow = [
+      { status: "pending", label: "Pending", description: "Order received" },
+      {
+        status: "approved",
+        label: "Approved",
+        description: "Order approved by admin",
+      },
+      {
+        status: "processing",
+        label: "Processing",
+        description: "Preparing for shipment",
+      },
+      { status: "shipped", label: "Shipped", description: "On the way to you" },
+      {
+        status: "delivered",
+        label: "Delivered",
+        description: "Order delivered",
+      },
+    ];
+
+    const currentStatusIndex = getStatusIndex(order.status);
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-gray-800 rounded-2xl p-6 max-w-md w-full border border-gold-500"
+        >
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-bold text-gold-500">Track Order</h3>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white text-2xl"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {statusFlow.map((step, index) => (
+              <div key={step.status} className="flex items-start space-x-4">
+                <div
+                  className={`flex flex-col items-center ${
+                    index < statusFlow.length - 1 ? "flex-grow" : ""
+                  }`}
+                >
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      index <= currentStatusIndex
+                        ? "bg-gold-500 text-gray-900"
+                        : "bg-gray-600 text-gray-400"
+                    }`}
+                  >
+                    {index < currentStatusIndex ? "✓" : index + 1}
+                  </div>
+                  {index < statusFlow.length - 1 && (
+                    <div
+                      className={`flex-grow w-1 mt-2 ${
+                        index < currentStatusIndex
+                          ? "bg-gold-500"
+                          : "bg-gray-600"
+                      }`}
+                    ></div>
+                  )}
+                </div>
+                <div className="flex-1 pb-6">
+                  <div
+                    className={`font-semibold ${
+                      index <= currentStatusIndex
+                        ? "text-gold-500"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    {step.label}
+                  </div>
+                  <div className="text-sm text-gray-400">
+                    {step.description}
+                  </div>
+                  {index === 1 && order.status === "approved" && (
+                    <div className="mt-2 p-3 bg-green-900 bg-opacity-50 rounded-lg border border-green-500">
+                      <p className="text-green-300 text-sm">
+                        ✅ Order approved! You will receive a call from{" "}
+                        <strong>+256 785 642772</strong> to confirm delivery
+                        details.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 p-4 bg-gray-700 rounded-lg">
+            <h4 className="font-semibold text-white mb-2">
+              Delivery Information
+            </h4>
+            <p className="text-gray-300 text-sm">
+              Order ID: <strong>{order.orderId}</strong>
+            </p>
+            <p className="text-gray-300 text-sm">
+              Contact: <strong>+256 785 642772</strong>
+            </p>
+            {order.estimatedDelivery && (
+              <p className="text-gray-300 text-sm">
+                Estimated Delivery: {formatDate(order.estimatedDelivery)}
+              </p>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    );
   };
 
   // Ensure filteredOrders is always an array
@@ -186,7 +318,7 @@ const Orders = () => {
               >
                 <option value="all">All Orders</option>
                 <option value="pending">Pending</option>
-                <option value="confirmed">Confirmed</option>
+                <option value="approved">Approved</option>
                 <option value="processing">Processing</option>
                 <option value="shipped">Shipped</option>
                 <option value="delivered">Delivered</option>
@@ -262,6 +394,25 @@ const Orders = () => {
                   </div>
                 </div>
 
+                {/* Approved Message */}
+                {order.status === "approved" && (
+                  <div className="mb-6 p-4 bg-green-900 bg-opacity-50 rounded-xl border border-green-500">
+                    <div className="flex items-center space-x-3">
+                      <span className="text-2xl">✅</span>
+                      <div>
+                        <h4 className="font-semibold text-green-300">
+                          Order Approved!
+                        </h4>
+                        <p className="text-green-200 text-sm">
+                          You will receive a call from{" "}
+                          <strong>+256 785 642772</strong> to confirm delivery
+                          details.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Order Items */}
                 <div className="border-t border-gray-700 pt-6">
                   <h4 className="text-lg font-semibold text-white mb-4">
@@ -326,7 +477,10 @@ const Orders = () => {
                       </span>
                     </div>
                     <div className="flex space-x-3">
-                      <button className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-semibold transition-colors duration-200">
+                      <button
+                        onClick={() => setTrackingOrder(order)}
+                        className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-semibold transition-colors duration-200"
+                      >
                         Track Order
                       </button>
                       <button className="bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded-lg font-semibold transition-colors duration-200">
@@ -386,8 +540,16 @@ const Orders = () => {
           </div>
         )}
       </div>
+
+      {/* Track Order Modal */}
+      {trackingOrder && (
+        <TrackOrderModal
+          order={trackingOrder}
+          onClose={() => setTrackingOrder(null)}
+        />
+      )}
     </div>
   );
 };
 
-export default Orders;
+export default CustomerOrders;

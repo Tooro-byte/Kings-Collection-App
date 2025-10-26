@@ -23,6 +23,31 @@ const AddProduct = () => {
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:3005";
 
+  // Enhanced image URL handler
+  const getFullImageUrl = (image) => {
+    if (!image) {
+      return "/images/placeholder.jpg";
+    }
+
+    // If it's already a full URL
+    if (image.startsWith("http")) {
+      return image;
+    }
+
+    // If it's a base64 data URL (from previews)
+    if (image.startsWith("data:")) {
+      return image;
+    }
+
+    // If it's a relative path starting with /
+    if (image.startsWith("/")) {
+      return `${API_BASE_URL}${image}`;
+    }
+
+    // If it's just a filename, assume it's in uploads
+    return `${API_BASE_URL}/uploads/${image}`;
+  };
+
   // Helper function for authenticated requests
   const makeAuthenticatedRequest = async (url, options = {}) => {
     const defaultOptions = {
@@ -84,24 +109,43 @@ const AddProduct = () => {
   const fetchRecentProducts = async () => {
     try {
       const response = await makeAuthenticatedRequest("/api/products");
-      if (response && response.success && Array.isArray(response.products)) {
-        // Get the 4 most recent products
-        const recent = response.products
-          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-          .slice(0, 4);
+      console.log("Recent products response:", response);
 
-        const recentUpdates = recent.map((product) => ({
-          id: product.id,
-          type: "product",
-          title: product.title,
-          price: product.price,
-          image: product.images?.[0] || "/images/placeholder.jpg",
-          category: product.category?.name || "Uncategorized",
-          timestamp: new Date(product.createdAt).toLocaleTimeString(),
-        }));
-
-        setRecentUpdates(recentUpdates);
+      let productsData = [];
+      if (response && Array.isArray(response)) {
+        productsData = response;
+      } else if (
+        response &&
+        response.success &&
+        Array.isArray(response.products)
+      ) {
+        productsData = response.products;
+      } else if (response && Array.isArray(response.data)) {
+        productsData = response.data;
       }
+
+      // Get the 4 most recent products
+      const recent = productsData
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date)
+        )
+        .slice(0, 4);
+
+      const recentUpdates = recent.map((product) => ({
+        id: product.id || product._id,
+        type: "product",
+        title: product.title,
+        price: product.price,
+        image: getFullImageUrl(product.image || product.images?.[0]),
+        category:
+          product.category?.name || product.category_name || "Uncategorized",
+        timestamp: new Date(
+          product.createdAt || product.date
+        ).toLocaleTimeString(),
+      }));
+
+      setRecentUpdates(recentUpdates);
     } catch (error) {
       console.error("Error fetching recent products:", error);
     }
@@ -205,7 +249,7 @@ const AddProduct = () => {
       if (response.ok) {
         showToast("success", "Product added successfully!");
 
-        // Add to recent updates
+        // Add to recent updates with proper image handling
         const newUpdate = {
           id: Date.now(),
           type: "product",
@@ -231,8 +275,9 @@ const AddProduct = () => {
         });
         setProductPreviews([]);
 
-        // Refresh categories
+        // Refresh categories and recent products
         await fetchCategories();
+        await fetchRecentProducts();
       } else {
         showToast(
           "error",
@@ -326,14 +371,6 @@ const AddProduct = () => {
 
   const getDescriptionCharCount = () => {
     return `${product.description.length}/100`;
-  };
-
-  // Helper function to get full image URL
-  const getFullImageUrl = (imagePath) => {
-    if (!imagePath) return "/images/placeholder.jpg";
-    if (imagePath.startsWith("http") || imagePath.startsWith("/"))
-      return imagePath;
-    return `${API_BASE_URL}${imagePath}`;
   };
 
   return (
@@ -674,13 +711,15 @@ const AddProduct = () => {
 
                   <div className="mb-3">
                     <img
-                      src={getFullImageUrl(update.image)}
+                      src={update.image}
                       alt={
                         update.type === "product" ? update.title : update.name
                       }
-                      className="w-full h-32 object-cover rounded-xl shadow-md"
+                      className="w-full h-32 object-cover rounded-xl shadow-md bg-gray-100"
                       onError={(e) => {
                         e.target.src = "/images/placeholder.jpg";
+                        e.target.className =
+                          "w-full h-32 object-cover rounded-xl shadow-md bg-gray-200";
                       }}
                     />
                   </div>

@@ -1,5 +1,5 @@
 import "./App.css";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 import Landing from "./components/Landing";
 import Login from "./components/Login";
 import Signup from "./components/Signup";
@@ -17,35 +17,33 @@ import CustomerOrders from "./components/CustomerOrders";
 
 function App() {
   return (
-    <Router>
-      <div className="App">
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/client" element={<ClientDashboard />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/sales" element={<SalesDashboard />} />
-          <Route path="/products" element={<StockProducts />} />
-          <Route path="/cart" element={<Cart />} />
-          <Route path="/payment" element={<Payments />} />
-          <Route path="/customers" element={<CustomersPage />} />
-          <Route path="/orders" element={<CustomerOrders />} />
+    <div className="App">
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/client" element={<ClientDashboard />} />
+        <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/sales" element={<SalesDashboard />} />
+        <Route path="/products" element={<StockProducts />} />
+        <Route path="/cart" element={<Cart />} />
+        <Route path="/payment" element={<Payments />} />
+        <Route path="/customers" element={<CustomersPage />} />
+        <Route path="/orders" element={<CustomerOrders />} />
 
-          {/* Add new product/category */}
-          <Route path="/add-product" element={<AddProduct />} />
+        {/* Add new product/category */}
+        <Route path="/add-product" element={<AddProduct />} />
 
-          {/* Update existing product/category */}
-          <Route path="/update-product" element={<UpdateProduct />} />
+        {/* Update existing product/category */}
+        <Route path="/update-product" element={<UpdateProduct />} />
 
-          <Route path="/admin/orders" element={<OrdersPage />} />
-          <Route path="/admin/customers" element={<CustomersPage />} />
+        <Route path="/admin/orders" element={<OrdersPage />} />
+        <Route path="/admin/customers" element={<CustomersPage />} />
 
-          {/* Catch-all for 404 */}
-          <Route path="*" element={<div>Page Not Found</div>} />
-        </Routes>
-      </div>
-    </Router>
+        {/* Catch-all for 404 */}
+        <Route path="*" element={<div>Page Not Found</div>} />
+      </Routes>
+    </div>
   );
 }
 

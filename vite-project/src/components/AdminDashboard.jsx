@@ -4,13 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const AdminDashboard = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
-  const [user, setUser] = useState({
-    name: "Admin User",
-    email: "admin@example.com",
-    avatar:
-      "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100",
-    role: "Administrator",
-  });
+  const [user, setUser] = useState(null);
   const [metrics, setMetrics] = useState({
     totalRevenue: 0,
     pendingOrders: 0,
@@ -24,22 +18,36 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filteredProducts, setFilteredProducts] = useState([]);
 
   const userDropdownRef = useRef(null);
   const navigate = useNavigate();
 
-  const fetchWithAuth = async (url, options = {}) => {
-    try {
-      const config = {
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...options.headers,
-        },
-        ...options,
-      };
+  const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:3005";
 
-      const response = await fetch(url, config);
+  // Helper function for authenticated requests
+  const makeAuthenticatedRequest = async (url, options = {}) => {
+    const defaultOptions = {
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+      ...options,
+    };
+
+    try {
+      const response = await fetch(`${API_BASE_URL}${url}`, defaultOptions);
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          navigate("/login");
+          throw new Error("Authentication required");
+        }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
 
       const contentType = response.headers.get("content-type");
       if (contentType && !contentType.includes("application/json")) {
@@ -56,13 +64,6 @@ const AdminDashboard = () => {
         }
       }
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error("API endpoint not found.");
-        }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
       return await response.json();
     } catch (error) {
       console.error(`Fetch error for ${url}:`, error);
@@ -70,44 +71,110 @@ const AdminDashboard = () => {
     }
   };
 
+  // Enhanced image URL handler
+  const getProductImageUrl = (image, product) => {
+    if (!image) {
+      return "/Images/placeholder.png";
+    }
+
+    // If it's already a full URL
+    if (image.startsWith("http")) {
+      return image;
+    }
+
+    // If it's a relative path starting with /
+    if (image.startsWith("/")) {
+      return `${API_BASE_URL}${image}`;
+    }
+
+    // If it's just a filename, assume it's in uploads
+    return `${API_BASE_URL}/uploads/${image}`;
+  };
+
+  // Fetch user data
+  const fetchUserData = async () => {
+    try {
+      const userData = await makeAuthenticatedRequest("/api/users/me");
+      setUser(userData);
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+      setError("Failed to load user data");
+    }
+  };
+
+  // Fetch dashboard data
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
       setError(null);
 
+      // Fetch user data first
+      await fetchUserData();
+
+      // Fetch admin dashboard data
       let dashboardData;
       try {
-        dashboardData = await fetchWithAuth("/api/admin/dashboard");
+        dashboardData = await makeAuthenticatedRequest("/api/admin/dashboard");
       } catch (adminError) {
         console.log(
-          "Admin endpoint failed, trying regular dashboard:",
+          "Admin endpoint failed, trying alternative endpoints:",
           adminError
         );
-        const regularData = await fetchWithAuth("/api/dashboard");
+
+        // Fallback: Fetch data from individual endpoints
+        const [productsData, ordersData, customersData, revenueData] =
+          await Promise.all([
+            makeAuthenticatedRequest("/api/products").catch(() => ({
+              products: [],
+            })),
+            makeAuthenticatedRequest("/api/orders").catch(() => ({
+              orders: [],
+            })),
+            makeAuthenticatedRequest("/api/users").catch(() => ({ users: [] })),
+            makeAuthenticatedRequest("/api/orders/revenue").catch(() => ({
+              totalRevenue: 0,
+            })),
+          ]);
+
         dashboardData = {
           metrics: {
-            totalRevenue: regularData.totalSpent || 0,
-            pendingOrders: regularData.orderCount || 0,
-            newCustomers: 0,
-            lowStockItems: 0,
-            totalProducts: 0,
-            activeCustomers: 1,
+            totalRevenue: revenueData.totalRevenue || 0,
+            pendingOrders:
+              ordersData.orders?.filter((order) => order.status === "pending")
+                .length || 0,
+            newCustomers:
+              customersData.users?.filter((user) => {
+                const monthAgo = new Date();
+                monthAgo.setMonth(monthAgo.getMonth() - 1);
+                return new Date(user.createdAt) > monthAgo;
+              }).length || 0,
+            lowStockItems:
+              productsData.products?.filter((product) => product.stock <= 10)
+                .length || 0,
+            totalProducts: productsData.products?.length || 0,
+            activeCustomers:
+              customersData.users?.filter(
+                (user) => user.isActive && user.role === "client"
+              ).length || 0,
           },
           recentActivities: [],
-          products: [],
+          products: productsData.products?.slice(0, 5) || [],
         };
       }
 
       if (dashboardData) {
         setMetrics(dashboardData.metrics || {});
         setRecentActivities(dashboardData.recentActivities || []);
-        setProducts(dashboardData.products || []);
+        const productsData = dashboardData.products || [];
+        setProducts(productsData);
+        setFilteredProducts(productsData);
       } else {
         throw new Error("No dashboard data received");
       }
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
       setError(error.message);
+      // Set default values
       setMetrics({
         totalRevenue: 0,
         pendingOrders: 0,
@@ -118,10 +185,74 @@ const AdminDashboard = () => {
       });
       setRecentActivities([]);
       setProducts([]);
+      setFilteredProducts([]);
     } finally {
       setLoading(false);
     }
   };
+
+  // Fetch products for the products section
+  const fetchProducts = async () => {
+    try {
+      const productsData = await makeAuthenticatedRequest("/api/products");
+      const productsArray = productsData.products || productsData || [];
+      setProducts(productsArray);
+      setFilteredProducts(productsArray);
+    } catch (error) {
+      console.error("Error fetching products:", error);
+      setProducts([]);
+      setFilteredProducts([]);
+    }
+  };
+
+  // Search products
+  const handleSearch = (query) => {
+    setSearchQuery(query);
+    if (!query.trim()) {
+      setFilteredProducts(products);
+      return;
+    }
+
+    const filtered = products.filter(
+      (product) =>
+        product.title?.toLowerCase().includes(query.toLowerCase()) ||
+        product.description?.toLowerCase().includes(query.toLowerCase()) ||
+        product.category?.name?.toLowerCase().includes(query.toLowerCase())
+    );
+    setFilteredProducts(filtered);
+  };
+
+  // Quick actions
+  const quickActions = [
+    {
+      icon: "fa-plus",
+      label: "Add Product",
+      description: "Create new product listing",
+      href: "/add-product",
+      color: "from-green-500 to-emerald-600",
+    },
+    {
+      icon: "fa-tags",
+      label: "Manage Categories",
+      description: "Organize product categories",
+      href: "/admin/categories",
+      color: "from-blue-500 to-cyan-600",
+    },
+    {
+      icon: "fa-chart-bar",
+      label: "View Analytics",
+      description: "Detailed sales reports",
+      href: "/admin/analytics",
+      color: "from-purple-500 to-indigo-600",
+    },
+    {
+      icon: "fa-users",
+      label: "Customer Insights",
+      description: "Customer behavior analytics",
+      href: "/admin/customers",
+      color: "from-orange-500 to-red-600",
+    },
+  ];
 
   useEffect(() => {
     fetchDashboardData();
@@ -142,7 +273,13 @@ const AdminDashboard = () => {
 
   const handleLogout = () => {
     if (window.confirm("Are you sure you want to logout?")) {
-      navigate("/logout");
+      // Clear session and redirect to login
+      fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      }).then(() => {
+        navigate("/login");
+      });
     }
   };
 
@@ -152,6 +289,10 @@ const AdminDashboard = () => {
       currency: "UGX",
       minimumFractionDigits: 0,
     }).format(amount);
+  };
+
+  const formatNumber = (number) => {
+    return new Intl.NumberFormat().format(number);
   };
 
   const mainNavItems = [
@@ -189,6 +330,7 @@ const AdminDashboard = () => {
         { icon: "fa-tags", label: "Categories", href: "/admin/categories" },
         { icon: "fa-chart-line", label: "Analytics", href: "/admin/analytics" },
         { icon: "fa-bullhorn", label: "Marketing", href: "/admin/marketing" },
+        { icon: "fa-gift", label: "Promotions", href: "/admin/promotions" },
       ],
     },
     {
@@ -196,6 +338,7 @@ const AdminDashboard = () => {
       items: [
         { icon: "fa-cog", label: "Settings", href: "/admin/settings" },
         { icon: "fa-shield-alt", label: "Security", href: "/admin/security" },
+        { icon: "fa-database", label: "Backups", href: "/admin/backups" },
         {
           icon: "fa-sign-out-alt",
           label: "Logout",
@@ -213,27 +356,36 @@ const AdminDashboard = () => {
       icon: "fa-money-bill-wave",
       color: "from-emerald-500 to-green-600",
       bgColor: "bg-gradient-to-r from-emerald-500 to-green-600",
+      trend: "+12%",
+      trendColor: "text-emerald-600",
     },
     {
       title: "Pending Orders",
-      value: metrics.pendingOrders,
+      value: formatNumber(metrics.pendingOrders),
       icon: "fa-shopping-cart",
       color: "from-blue-500 to-cyan-600",
       bgColor: "bg-gradient-to-r from-blue-500 to-cyan-600",
+      trend: `${metrics.pendingOrders > 0 ? "Needs attention" : "All clear"}`,
+      trendColor:
+        metrics.pendingOrders > 0 ? "text-amber-600" : "text-emerald-600",
     },
     {
       title: "New Customers",
-      value: metrics.newCustomers,
+      value: formatNumber(metrics.newCustomers),
       icon: "fa-users",
       color: "from-purple-500 to-indigo-600",
       bgColor: "bg-gradient-to-r from-purple-500 to-indigo-600",
+      trend: "+8%",
+      trendColor: "text-purple-600",
     },
     {
       title: "Low Stock Items",
-      value: metrics.lowStockItems,
+      value: formatNumber(metrics.lowStockItems),
       icon: "fa-exclamation-triangle",
       color: "from-amber-500 to-orange-600",
       bgColor: "bg-gradient-to-r from-amber-500 to-orange-600",
+      trend: metrics.lowStockItems > 0 ? "Restock needed" : "Well stocked",
+      trendColor: metrics.lowStockItems > 0 ? "text-red-600" : "text-green-600",
     },
   ];
 
@@ -328,15 +480,20 @@ const AdminDashboard = () => {
                   className="flex items-center space-x-3 p-2 rounded-lg hover:bg-slate-50 transition-colors"
                 >
                   <img
-                    src={user.avatar}
+                    src={
+                      user?.avatar ||
+                      "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100"
+                    }
                     alt="Admin"
                     className="w-8 h-8 rounded-full border-2 border-blue-500"
                   />
                   <div className="text-left">
                     <div className="text-sm font-medium text-slate-900">
-                      {user.name}
+                      {user?.name || "Admin User"}
                     </div>
-                    <div className="text-xs text-slate-500">{user.role}</div>
+                    <div className="text-xs text-slate-500">
+                      {user?.role || "Administrator"}
+                    </div>
                   </div>
                   <i
                     className={`fas fa-chevron-down text-slate-400 text-sm transition-transform ${
@@ -355,10 +512,10 @@ const AdminDashboard = () => {
                     >
                       <div className="px-4 py-3 border-b border-slate-100">
                         <div className="font-medium text-slate-900">
-                          {user.name}
+                          {user?.name || "Admin User"}
                         </div>
                         <div className="text-sm text-slate-500">
-                          {user.email}
+                          {user?.email || "admin@example.com"}
                         </div>
                       </div>
 
@@ -462,15 +619,63 @@ const AdminDashboard = () => {
           </aside>
 
           <main className="flex-1 min-w-0">
+            {/* Welcome Section */}
             <div className="mb-8">
-              <h1 className="text-3xl font-bold text-slate-900 mb-2">
-                Welcome back, {user.name}!
-              </h1>
-              <p className="text-slate-600">
-                Here's what's happening with your store today.
-              </p>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h1 className="text-3xl font-bold text-slate-900 mb-2">
+                    Welcome back, {user?.name || "Admin"}! 👋
+                  </h1>
+                  <p className="text-slate-600">
+                    Here's what's happening with your store today.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search products..."
+                      value={searchQuery}
+                      onChange={(e) => handleSearch(e.target.value)}
+                      className="pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <i className="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+                  </div>
+                </div>
+              </div>
             </div>
 
+            {/* Quick Actions Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              {quickActions.map((action, index) => (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  whileHover={{ scale: 1.02 }}
+                  className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 hover:shadow-md transition-all duration-200"
+                >
+                  <Link to={action.href} className="block">
+                    <div
+                      className={`w-12 h-12 bg-gradient-to-r ${action.color} rounded-lg flex items-center justify-center mb-3`}
+                    >
+                      <i
+                        className={`fas ${action.icon} text-white text-lg`}
+                      ></i>
+                    </div>
+                    <h3 className="font-semibold text-slate-900 mb-1">
+                      {action.label}
+                    </h3>
+                    <p className="text-slate-600 text-sm">
+                      {action.description}
+                    </p>
+                  </Link>
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
               {statCards.map((stat, index) => (
                 <motion.div
@@ -486,6 +691,9 @@ const AdminDashboard = () => {
                     >
                       <i className={`fas ${stat.icon} text-lg`}></i>
                     </div>
+                    <div className={`text-xs font-medium ${stat.trendColor}`}>
+                      {stat.trend}
+                    </div>
                   </div>
                   <h3 className="text-2xl font-bold text-slate-900 mb-1">
                     {stat.value}
@@ -495,56 +703,136 @@ const AdminDashboard = () => {
               ))}
             </div>
 
+            {/* Products Section with Enhanced Image Handling */}
             <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Products
-                </h2>
-                <Link
-                  to="/admin/products"
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                >
-                  View All
-                </Link>
-              </div>
-              {products.length > 0 ? (
-                <div className="space-y-4">
-                  {products.map((product) => (
-                    <div
-                      key={product.id}
-                      className="flex items-center space-x-4 p-3 rounded-lg hover:bg-slate-50 transition-colors"
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    Recent Products
+                  </h2>
+                  <p className="text-slate-600 text-sm">
+                    {filteredProducts.length} of {metrics.totalProducts}{" "}
+                    products
+                    {searchQuery && ` matching "${searchQuery}"`}
+                  </p>
+                </div>
+                <div className="flex items-center space-x-3">
+                  {searchQuery && (
+                    <button
+                      onClick={() => handleSearch("")}
+                      className="text-sm text-slate-500 hover:text-slate-700"
                     >
-                      <img
-                        src={product.image || "/Images/placeholder.png"}
-                        alt={product.title}
-                        className="w-12 h-12 object-cover rounded-lg"
-                      />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-slate-900">
-                          {product.title}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {formatCurrency(product.price)}
-                        </p>
+                      Clear search
+                    </button>
+                  )}
+                  <Link
+                    to="/admin/products"
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    View All
+                  </Link>
+                </div>
+              </div>
+
+              {filteredProducts.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredProducts.slice(0, 6).map((product) => (
+                    <motion.div
+                      key={product.id || product._id}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="bg-slate-50 rounded-lg p-4 border border-slate-200 hover:border-blue-300 transition-all duration-200 group"
+                    >
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0">
+                          <div className="relative">
+                            <img
+                              src={getProductImageUrl(
+                                product.image || product.images?.[0],
+                                product
+                              )}
+                              alt={product.title}
+                              className="w-16 h-16 object-cover rounded-lg bg-white shadow-sm group-hover:shadow-md transition-shadow"
+                              onError={(e) => {
+                                e.target.src = "/Images/placeholder.png";
+                                e.target.className =
+                                  "w-16 h-16 object-cover rounded-lg bg-slate-200";
+                              }}
+                            />
+                            {product.stock <= 10 && product.stock > 0 && (
+                              <div className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs px-1 rounded-full">
+                                Low
+                              </div>
+                            )}
+                            {product.stock === 0 && (
+                              <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs px-1 rounded-full">
+                                Out
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium text-slate-900 text-sm truncate group-hover:text-blue-600 transition-colors">
+                            {product.title}
+                          </h3>
+                          <p className="text-slate-600 text-xs mt-1 line-clamp-2">
+                            {product.description?.substring(0, 60)}...
+                          </p>
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-sm font-semibold text-slate-900">
+                              {formatCurrency(product.price)}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              Stock: {product.stock || 0}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <Link
-                        to={`/update-product/${product.id}`}
-                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                      >
-                        Edit
-                      </Link>
-                    </div>
+                      <div className="flex space-x-2 mt-3">
+                        <Link
+                          to={`/update-product/${product.id || product._id}`}
+                          className="flex-1 bg-blue-600 text-white text-center py-2 px-3 rounded text-sm font-medium hover:bg-blue-700 transition-colors"
+                        >
+                          <i className="fas fa-edit mr-1"></i>
+                          Edit
+                        </Link>
+                        <button className="flex-1 bg-slate-200 text-slate-700 py-2 px-3 rounded text-sm font-medium hover:bg-slate-300 transition-colors">
+                          <i className="fas fa-eye mr-1"></i>
+                          View
+                        </button>
+                      </div>
+                    </motion.div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 text-slate-500">
-                  <i className="fas fa-box-open text-3xl mb-3 text-slate-300"></i>
-                  <p className="text-sm">No products available</p>
+                <div className="text-center py-12">
+                  <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-box-open text-3xl text-slate-400"></i>
+                  </div>
+                  <h3 className="text-lg font-medium text-slate-900 mb-2">
+                    {searchQuery
+                      ? "No products found"
+                      : "No products available"}
+                  </h3>
+                  <p className="text-slate-600 mb-4">
+                    {searchQuery
+                      ? "Try adjusting your search terms"
+                      : "Get started by adding your first product"}
+                  </p>
+                  <Link
+                    to="/add-product"
+                    className="inline-flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                  >
+                    <i className="fas fa-plus mr-2"></i>
+                    Add Product
+                  </Link>
                 </div>
               )}
             </div>
 
+            {/* Additional Dashboard Sections */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Recent Activity */}
               <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-sm border border-slate-200 p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-lg font-semibold text-slate-900">
@@ -610,6 +898,7 @@ const AdminDashboard = () => {
                 </div>
               </div>
 
+              {/* Store Overview */}
               <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-sm border border-slate-200 p-6">
                 <h2 className="text-lg font-semibold text-slate-900 mb-6">
                   Store Overview
@@ -620,7 +909,7 @@ const AdminDashboard = () => {
                       Total Products
                     </span>
                     <span className="text-sm font-semibold text-slate-900">
-                      {metrics.totalProducts}
+                      {formatNumber(metrics.totalProducts)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-3 border-b border-slate-100">
@@ -628,24 +917,38 @@ const AdminDashboard = () => {
                       Active Customers
                     </span>
                     <span className="text-sm font-semibold text-slate-900">
-                      {metrics.activeCustomers}
+                      {formatNumber(metrics.activeCustomers)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-3 border-b border-slate-100">
                     <span className="text-sm text-slate-600">
-                      This Month's Sales
+                      This Month's Revenue
                     </span>
                     <span className="text-sm font-semibold text-slate-900">
-                      {metrics.pendingOrders}
+                      {formatCurrency(metrics.totalRevenue)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-3">
-                    <span className="text-sm text-slate-600">Store Rating</span>
+                    <span className="text-sm text-slate-600">Store Health</span>
                     <div className="flex items-center">
-                      <span className="text-sm font-semibold text-slate-900 mr-2">
-                        -
+                      <span
+                        className={`text-sm font-semibold ${
+                          metrics.lowStockItems > 0
+                            ? "text-amber-600"
+                            : "text-emerald-600"
+                        } mr-2`}
+                      >
+                        {metrics.lowStockItems > 0
+                          ? "Needs Attention"
+                          : "Healthy"}
                       </span>
-                      <i className="fas fa-star text-slate-300"></i>
+                      <i
+                        className={`fas ${
+                          metrics.lowStockItems > 0
+                            ? "fa-exclamation-triangle text-amber-500"
+                            : "fa-check-circle text-emerald-500"
+                        }`}
+                      ></i>
                     </div>
                   </div>
                 </div>
@@ -662,9 +965,10 @@ const AdminDashboard = () => {
               </div>
             </div>
 
+            {/* Support Section */}
             <div className="mt-8 bg-gradient-to-r from-blue-600 to-purple-700 rounded-xl p-6 text-white shadow-lg">
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between">
+                <div className="mb-4 lg:mb-0">
                   <h3 className="text-lg font-semibold mb-2">
                     Need help with your store?
                   </h3>
@@ -678,12 +982,14 @@ const AdminDashboard = () => {
                     to="/admin/docs"
                     className="px-4 py-2 bg-white text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-50 transition-colors"
                   >
+                    <i className="fas fa-book mr-2"></i>
                     Documentation
                   </Link>
                   <Link
                     to="/admin/support"
                     className="px-4 py-2 border border-white text-white rounded-lg text-sm font-medium hover:bg-white hover:text-blue-600 transition-colors"
                   >
+                    <i className="fas fa-life-ring mr-2"></i>
                     Contact Support
                   </Link>
                 </div>

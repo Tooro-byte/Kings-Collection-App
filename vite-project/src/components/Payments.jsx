@@ -6,6 +6,15 @@ const Payment = () => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("mobile");
   const [orderDetails, setOrderDetails] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [shippingAddress, setShippingAddress] = useState({
+    name: "",
+    phone: "",
+    address: "",
+    city: "",
+    country: "Uganda",
+  });
+  const [user, setUser] = useState(null);
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
 
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:3005";
@@ -41,6 +50,7 @@ const Payment = () => {
 
   useEffect(() => {
     fetchCartItems();
+    fetchUserProfile();
   }, []);
 
   const fetchCartItems = async () => {
@@ -77,8 +87,104 @@ const Payment = () => {
     }
   };
 
+  const fetchUserProfile = async () => {
+    try {
+      // Try different possible endpoints for user data
+      let userData;
+      try {
+        userData = await makeAuthenticatedRequest("/api/users/me");
+      } catch (error) {
+        console.log("Trying alternative user endpoint...");
+        try {
+          const dashboardData = await makeAuthenticatedRequest(
+            "/api/dashboard"
+          );
+          userData = dashboardData.user || {
+            name: "Customer",
+            email: "",
+            phone: "",
+          };
+        } catch (dashboardError) {
+          console.log("Using fallback user data");
+          userData = { name: "Customer", email: "", phone: "" };
+        }
+      }
+
+      if (userData) {
+        setUser(userData);
+        setShippingAddress((prev) => ({
+          ...prev,
+          name: userData.name || "",
+          phone: userData.phone || "",
+          email: userData.email || "",
+        }));
+      }
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      // Set default values if user fetch fails
+      setShippingAddress((prev) => ({
+        ...prev,
+        name: "Customer",
+      }));
+    }
+  };
+
   const formatPrice = (price) => {
     return parseFloat(price).toLocaleString("en-UG");
+  };
+
+  const validateShippingAddress = () => {
+    if (!shippingAddress.name.trim()) {
+      alert("Please enter your full name");
+      return false;
+    }
+    if (!shippingAddress.phone.trim()) {
+      alert("Please enter your phone number");
+      return false;
+    }
+    if (!shippingAddress.address.trim()) {
+      alert("Please enter your shipping address");
+      return false;
+    }
+    if (!shippingAddress.city.trim()) {
+      alert("Please enter your city");
+      return false;
+    }
+    if (!paymentConfirmed) {
+      alert("Please confirm that you have made the payment");
+      return false;
+    }
+    return true;
+  };
+
+  // Debug function to check cart structure
+  const debugCartStructure = async () => {
+    try {
+      const cartResponse = await makeAuthenticatedRequest("/api/cart");
+      console.log("=== CART DEBUG INFO ===");
+      console.log("Cart success:", cartResponse.success);
+      console.log("Cart items count:", cartResponse.items?.length);
+
+      if (cartResponse.items && cartResponse.items.length > 0) {
+        cartResponse.items.forEach((item, index) => {
+          console.log(`Item ${index}:`, {
+            productId: item.productId,
+            product: item.product,
+            quantity: item.quantity,
+            price: item.price,
+            addedAt: item.addedAt,
+            hasProductId: !!item.productId,
+            hasProductObject: !!item.product,
+            productObjectId: item.product?._id || item.product?.id,
+          });
+        });
+      }
+      console.log("=== END CART DEBUG ===");
+      return cartResponse;
+    } catch (error) {
+      console.error("Debug error:", error);
+      return null;
+    }
   };
 
   const handlePlaceOrder = async () => {
@@ -87,49 +193,125 @@ const Payment = () => {
       return;
     }
 
+    if (!validateShippingAddress()) {
+      return;
+    }
+
     try {
       setIsProcessing(true);
 
-      // Get cart items first
-      const cartResponse = await makeAuthenticatedRequest("/api/cart");
+      // Debug cart structure first
+      const cartDebug = await debugCartStructure();
 
-      if (!cartResponse.success || cartResponse.items.length === 0) {
-        alert("Your cart is empty");
+      if (
+        !cartDebug ||
+        !cartDebug.success ||
+        !cartDebug.items ||
+        cartDebug.items.length === 0
+      ) {
+        alert("Your cart is empty or there's an issue with your cart data");
         setIsProcessing(false);
         return;
       }
 
-      // Create order
+      // Check if cart items have valid product IDs
+      const invalidItems = cartDebug.items.filter((item) => {
+        const hasProductId = !!item.productId;
+        const hasProductObjectId = !!(item.product?._id || item.product?.id);
+        return !hasProductId && !hasProductObjectId;
+      });
+
+      if (invalidItems.length > 0) {
+        console.error("Invalid cart items:", invalidItems);
+        alert(
+          "Some items in your cart are invalid. Please remove them and try again."
+        );
+        setIsProcessing(false);
+        return;
+      }
+
+      // Prepare the order payload according to your backend requirements
+      const orderPayload = {
+        paymentMethod: selectedPaymentMethod,
+        shippingAddress: {
+          name: shippingAddress.name.trim(),
+          phone: shippingAddress.phone.trim(),
+          address: shippingAddress.address.trim(),
+          city: shippingAddress.city.trim(),
+          country: shippingAddress.country,
+        },
+        customerNotes: `Payment completed via ${selectedPaymentMethod}.`,
+      };
+
+      console.log("Creating order with payload:", orderPayload);
+
+      // Create order using the backend endpoint
       const orderResponse = await makeAuthenticatedRequest("/api/orders", {
         method: "POST",
-        body: JSON.stringify({
-          paymentMethod: selectedPaymentMethod,
-          shippingAddress: {
-            // You can add shipping address collection here
-            name: "Customer Name",
-            phone: "Customer Phone",
-            address: "Shipping Address",
-          },
-          customerNotes: "Payment completed via " + selectedPaymentMethod,
-        }),
+        body: JSON.stringify(orderPayload),
       });
 
       if (orderResponse.success) {
+        // Clear cart after successful order
+        try {
+          await makeAuthenticatedRequest("/api/cart/clear", {
+            method: "DELETE",
+          });
+        } catch (clearError) {
+          console.warn("Could not clear cart:", clearError);
+        }
+
+        const orderId =
+          orderResponse.order?.orderId ||
+          orderResponse.order?._id ||
+          orderResponse.orderId ||
+          orderResponse._id ||
+          orderResponse.id ||
+          "Your order";
+
         alert(
-          `Order placed successfully! Order ID: ${orderResponse.order.orderId}`
+          `Order placed successfully! Order ID: ${orderId}\n\nYou will receive a confirmation call shortly.`
         );
 
         // Redirect to orders page
         window.location.href = "/orders";
       } else {
-        alert("Failed to place order: " + orderResponse.message);
+        alert(
+          "Failed to place order: " +
+            (orderResponse.message || "Unknown error. Please try again.")
+        );
       }
     } catch (error) {
       console.error("Error placing order:", error);
-      alert("Error placing order. Please try again.");
+
+      // More specific error messages based on the actual error
+      if (error.message.includes("400")) {
+        alert(
+          "Invalid order data. This might be due to:\n• Invalid product IDs in cart\n• Insufficient stock\n• Corrupted cart data\n\nPlease try clearing your cart and adding items again, or contact support."
+        );
+      } else if (error.message.includes("404")) {
+        alert(
+          "Order service is currently unavailable. Please try again later."
+        );
+      } else if (error.message.includes("500")) {
+        alert("Server error. Please try again in a few moments.");
+      } else if (error.message.includes("Network Error")) {
+        alert(
+          "Network connection error. Please check your internet connection and try again."
+        );
+      } else {
+        alert("Error placing order: " + error.message);
+      }
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleInputChange = (field, value) => {
+    setShippingAddress((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
   };
 
   if (loading) {
@@ -145,21 +327,13 @@ const Payment = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-800 relative overflow-hidden">
-      {/* Animated Spiral Background */}
-      <div className="absolute inset-0 opacity-10">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 border-2 border-gold-500 rounded-full animate-pulse"></div>
-        <div className="absolute top-1/3 left-1/3 w-64 h-64 border-2 border-purple-500 rounded-full animate-pulse delay-75"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 border-2 border-blue-500 rounded-full animate-pulse delay-150"></div>
-        <div className="absolute bottom-1/3 right-1/3 w-72 h-72 border-2 border-emerald-500 rounded-full animate-pulse delay-300"></div>
-      </div>
-
       {/* Navigation Bar */}
       <nav className="bg-blue-900 bg-opacity-95 backdrop-blur-lg sticky top-0 z-40 border-b-2 border-red-500 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-gold-500 rounded-full flex items-center justify-center">
-                <span className="text-white-900 font-bold text-sm"></span>
+                <span className="text-white-900 font-bold text-sm">K</span>
               </div>
               <h1 className="text-2xl font-bold text-gold-500">
                 Kings Collections
@@ -193,7 +367,7 @@ const Payment = () => {
         </div>
       </nav>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
         {/* Header */}
         <div className="bg-teal-800 bg-opacity-80 backdrop-blur-lg rounded-xl p-6 border border-gold-500 mb-8 transform hover:scale-105 transition-transform duration-300">
           <h1 className="text-4xl font-bold text-gold-500 mb-2 text-center">
@@ -205,18 +379,8 @@ const Payment = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Payment Methods - 3 Beautiful Cards */}
-
-          {/* Card 1: Bank Details */}
-          <div
-            className="bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900 rounded-2xl p-6 border-2 border-blue-500 shadow-2xl transform hover:scale-105 transition-all duration-500 hover:rotate-1"
-            style={{
-              background:
-                "linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #7e22ce 100%)",
-              boxShadow:
-                "0 20px 40px rgba(59, 130, 246, 0.3), 0 0 80px rgba(59, 130, 246, 0.1)",
-            }}
-          >
+          {/* Payment Methods */}
+          <div className="bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900 rounded-2xl p-6 border-2 border-blue-500 shadow-2xl transform hover:scale-105 transition-all duration-500 hover:rotate-1">
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
                 <span className="text-white text-2xl">🏦</span>
@@ -260,23 +424,6 @@ const Payment = () => {
                 </div>
               </div>
 
-              <div className="bg-blue-900 bg-opacity-30 rounded-lg p-4 border border-blue-600">
-                <h4 className="font-bold text-blue-300 mb-2">
-                  💡 Payment Instructions
-                </h4>
-                <ol className="text-blue-200 text-sm space-y-1 list-decimal list-inside">
-                  <li>Use the account details above for transfer</li>
-                  <li>
-                    Transfer amount:{" "}
-                    <strong className="text-white">
-                      UGX {orderDetails ? formatPrice(orderDetails.total) : "0"}
-                    </strong>
-                  </li>
-                  <li>Use your name as reference</li>
-                  <li>Keep the transaction receipt</li>
-                </ol>
-              </div>
-
               <button
                 onClick={() => setSelectedPaymentMethod("bank")}
                 className={`w-full py-3 rounded-xl font-bold text-lg transition-all duration-300 ${
@@ -292,16 +439,7 @@ const Payment = () => {
             </div>
           </div>
 
-          {/* Card 2: Mobile Money */}
-          <div
-            className="bg-gradient-to-br from-purple-900 via-pink-800 to-red-900 rounded-2xl p-6 border-2 border-purple-500 shadow-2xl transform hover:scale-105 transition-all duration-500 hover:-rotate-1"
-            style={{
-              background:
-                "linear-gradient(135deg, #581c87 0%, #be185d 50%, #991b1b 100%)",
-              boxShadow:
-                "0 20px 40px rgba(192, 132, 252, 0.3), 0 0 80px rgba(192, 132, 252, 0.1)",
-            }}
-          >
+          <div className="bg-gradient-to-br from-purple-900 via-pink-800 to-red-900 rounded-2xl p-6 border-2 border-purple-500 shadow-2xl transform hover:scale-105 transition-all duration-500 hover:-rotate-1">
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-purple-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
                 <span className="text-white text-2xl">📱</span>
@@ -313,7 +451,6 @@ const Payment = () => {
             </div>
 
             <div className="space-y-4">
-              {/* MTN Mobile Money */}
               <div className="bg-yellow-600 bg-opacity-20 rounded-xl p-4 border border-yellow-500">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-bold text-yellow-300 text-lg">
@@ -325,11 +462,10 @@ const Payment = () => {
                   <p className="text-white font-mono text-xl font-bold mb-1">
                     +256 785 642 772
                   </p>
-                  <p className="text-yellow-200 text-sm">Kizza Sulait</p>
+                  <p className="text-yellow-200 text-sm">Kings Collections</p>
                 </div>
               </div>
 
-              {/* Airtel Money */}
               <div className="bg-red-600 bg-opacity-20 rounded-xl p-4 border border-red-500">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-bold text-red-300 text-lg">
@@ -341,26 +477,8 @@ const Payment = () => {
                   <p className="text-white font-mono text-xl font-bold mb-1">
                     +256 757 871 210
                   </p>
-                  <p className="text-red-200 text-sm">Kizza Sulait</p>
+                  <p className="text-red-200 text-sm">Kings Collections</p>
                 </div>
-              </div>
-
-              <div className="bg-purple-900 bg-opacity-30 rounded-lg p-4 border border-purple-600">
-                <h4 className="font-bold text-purple-300 mb-2">
-                  📝 Payment Instructions
-                </h4>
-                <ol className="text-purple-200 text-sm space-y-1 list-decimal list-inside">
-                  <li>Go to your mobile money menu</li>
-                  <li>Select "Send Money"</li>
-                  <li>Enter the phone number above</li>
-                  <li>
-                    Amount:{" "}
-                    <strong className="text-white">
-                      UGX {orderDetails ? formatPrice(orderDetails.total) : "0"}
-                    </strong>
-                  </li>
-                  <li>Use your name as reference</li>
-                </ol>
               </div>
 
               <button
@@ -378,16 +496,7 @@ const Payment = () => {
             </div>
           </div>
 
-          {/* Card 3: PayPal */}
-          <div
-            className="bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-500 rounded-2xl p-6 border-2 border-cyan-400 shadow-2xl transform hover:scale-105 transition-all duration-500 hover:rotate-1"
-            style={{
-              background:
-                "linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #06b6d4 100%)",
-              boxShadow:
-                "0 20px 40px rgba(6, 182, 212, 0.3), 0 0 80px rgba(6, 182, 212, 0.1)",
-            }}
-          >
+          <div className="bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-500 rounded-2xl p-6 border-2 border-cyan-400 shadow-2xl transform hover:scale-105 transition-all duration-500 hover:rotate-1">
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-cyan-400 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
                 <span className="text-white text-2xl">🌐</span>
@@ -403,7 +512,6 @@ const Payment = () => {
                 </h3>
                 <p className="text-cyan-200 text-sm mb-4">
                   Pay securely with your PayPal account or credit card.
-                  International customers preferred.
                 </p>
                 <div className="text-center">
                   <p className="text-white font-bold text-lg">
@@ -411,16 +519,6 @@ const Payment = () => {
                     {orderDetails ? formatPrice(orderDetails.total) : "0"}
                   </p>
                 </div>
-              </div>
-
-              <div className="bg-cyan-800 bg-opacity-20 rounded-lg p-4 border border-cyan-500">
-                <h4 className="font-bold text-cyan-300 mb-2">🔒 Benefits</h4>
-                <ul className="text-cyan-200 text-sm space-y-1 list-disc list-inside">
-                  <li>Secure international payments</li>
-                  <li>Credit card acceptance</li>
-                  <li>Buyer protection</li>
-                  <li>Instant processing</li>
-                </ul>
               </div>
 
               <button
@@ -439,100 +537,167 @@ const Payment = () => {
           </div>
         </div>
 
-        {/* Order Summary & Confirmation */}
-        <div className="mt-12 bg-gray-800 bg-opacity-80 backdrop-blur-lg rounded-2xl p-8 border border-gold-500">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Order Summary */}
-            <div>
-              <h2 className="text-2xl font-bold text-gold-500 mb-6">
-                Order Summary
-              </h2>
+        {/* Shipping Address & Order Summary */}
+        <div className="mt-12 grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Shipping Address Form */}
+          <div className="bg-gray-800 bg-opacity-80 backdrop-blur-lg rounded-2xl p-8 border border-gold-500">
+            <h2 className="text-2xl font-bold text-gold-500 mb-6">
+              Shipping Address
+            </h2>
 
-              {orderDetails && (
-                <div className="space-y-4">
-                  <div className="flex justify-between text-gray-300">
-                    <span>Subtotal ({orderDetails.itemCount} items)</span>
-                    <span>UGX {formatPrice(orderDetails.subtotal)}</span>
-                  </div>
-
-                  <div className="flex justify-between text-gray-300">
-                    <span>Shipping</span>
-                    <span>UGX {formatPrice(orderDetails.shipping)}</span>
-                  </div>
-
-                  <div className="border-t border-gold-500 pt-4 flex justify-between text-xl font-bold text-white">
-                    <span>Total Amount</span>
-                    <span className="text-gold-500 text-2xl">
-                      UGX {formatPrice(orderDetails.total)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Selected Payment Method */}
-              <div className="mt-6 p-4 bg-gold-500 bg-opacity-10 rounded-lg border border-gold-500">
-                <h3 className="font-bold text-gold-500 mb-2">
-                  Selected Payment Method:
-                </h3>
-                <p className="text-white text-lg">
-                  {selectedPaymentMethod === "bank" && "🏦 Bank Transfer"}
-                  {selectedPaymentMethod === "mobile" && "📱 Mobile Money"}
-                  {selectedPaymentMethod === "paypal" && "🌐 PayPal"}
-                  {!selectedPaymentMethod && "Please select a payment method"}
-                </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-gray-300 mb-2">Full Name *</label>
+                <input
+                  type="text"
+                  value={shippingAddress.name}
+                  onChange={(e) => handleInputChange("name", e.target.value)}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-gold-500"
+                  placeholder="Enter your full name"
+                  required
+                />
               </div>
+
+              <div>
+                <label className="block text-gray-300 mb-2">
+                  Phone Number *
+                </label>
+                <input
+                  type="tel"
+                  value={shippingAddress.phone}
+                  onChange={(e) => handleInputChange("phone", e.target.value)}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-gold-500"
+                  placeholder="+256 XXX XXX XXX"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-300 mb-2">Address *</label>
+                <textarea
+                  value={shippingAddress.address}
+                  onChange={(e) => handleInputChange("address", e.target.value)}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-gold-500"
+                  placeholder="Enter your complete shipping address"
+                  rows="3"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-300 mb-2">City *</label>
+                  <input
+                    type="text"
+                    value={shippingAddress.city}
+                    onChange={(e) => handleInputChange("city", e.target.value)}
+                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-gold-500"
+                    placeholder="Enter your city"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Country</label>
+                  <input
+                    type="text"
+                    value={shippingAddress.country}
+                    onChange={(e) =>
+                      handleInputChange("country", e.target.value)
+                    }
+                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-gold-500"
+                    disabled
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Order Summary & Confirmation */}
+          <div className="bg-gray-800 bg-opacity-80 backdrop-blur-lg rounded-2xl p-8 border border-gold-500">
+            <h2 className="text-2xl font-bold text-gold-500 mb-6">
+              Order Summary
+            </h2>
+
+            {orderDetails && (
+              <div className="space-y-4 mb-6">
+                <div className="flex justify-between text-gray-300">
+                  <span>Subtotal ({orderDetails.itemCount} items)</span>
+                  <span>UGX {formatPrice(orderDetails.subtotal)}</span>
+                </div>
+
+                <div className="flex justify-between text-gray-300">
+                  <span>Shipping</span>
+                  <span>UGX {formatPrice(orderDetails.shipping)}</span>
+                </div>
+
+                <div className="border-t border-gold-500 pt-4 flex justify-between text-xl font-bold text-white">
+                  <span>Total Amount</span>
+                  <span className="text-gold-500 text-2xl">
+                    UGX {formatPrice(orderDetails.total)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Selected Payment Method */}
+            <div className="mb-6 p-4 bg-gold-500 bg-opacity-10 rounded-lg border border-gold-500">
+              <h3 className="font-bold text-gold-500 mb-2">
+                Selected Payment Method:
+              </h3>
+              <p className="text-white text-lg">
+                {selectedPaymentMethod === "bank" && "🏦 Bank Transfer"}
+                {selectedPaymentMethod === "mobile" && "📱 Mobile Money"}
+                {selectedPaymentMethod === "paypal" && "🌐 PayPal"}
+                {!selectedPaymentMethod && "Please select a payment method"}
+              </p>
             </div>
 
             {/* Confirmation Section */}
-            <div>
-              <h2 className="text-2xl font-bold text-gold-500 mb-6">
-                Confirm Payment
-              </h2>
-
-              <div className="space-y-4">
-                <div className="flex items-start space-x-3 p-4 bg-gray-700 rounded-lg">
-                  <input
-                    type="checkbox"
-                    id="confirmPayment"
-                    className="w-5 h-5 text-gold-500 bg-gray-600 border-gray-500 rounded focus:ring-gold-500 focus:ring-2 mt-1"
-                  />
-                  <label
-                    htmlFor="confirmPayment"
-                    className="text-gray-300 text-sm"
-                  >
-                    I confirm that I have made the payment using the selected
-                    method. I understand that my order will be processed once
-                    payment is verified.
-                  </label>
-                </div>
-
-                <button
-                  onClick={handlePlaceOrder}
-                  disabled={isProcessing || !selectedPaymentMethod}
-                  className={`w-full py-4 rounded-xl font-bold text-xl transition-all duration-300 flex items-center justify-center space-x-3 ${
-                    isProcessing || !selectedPaymentMethod
-                      ? "bg-gray-600 cursor-not-allowed"
-                      : "bg-emerald-600 hover:bg-emerald-500 text-white hover:shadow-2xl hover:shadow-emerald-500/30 hover:-translate-y-1"
-                  }`}
+            <div className="space-y-4">
+              <div className="flex items-start space-x-3 p-4 bg-gray-700 rounded-lg">
+                <input
+                  type="checkbox"
+                  id="confirmPayment"
+                  checked={paymentConfirmed}
+                  onChange={(e) => setPaymentConfirmed(e.target.checked)}
+                  className="w-5 h-5 text-gold-500 bg-gray-600 border-gray-500 rounded focus:ring-gold-500 focus:ring-2 mt-1"
+                />
+                <label
+                  htmlFor="confirmPayment"
+                  className="text-gray-300 text-sm"
                 >
-                  {isProcessing ? (
-                    <>
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
-                      <span>Processing Payment...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>✅</span>
-                      <span>Confirm & Place Order</span>
-                    </>
-                  )}
-                </button>
+                  I confirm that I have made the payment using the selected
+                  method. I understand that my order will be processed once
+                  payment is verified.
+                </label>
+              </div>
 
-                <div className="text-center text-gray-400 text-sm">
-                  <p>
-                    You will receive a confirmation email with order details
-                  </p>
-                </div>
+              <button
+                onClick={handlePlaceOrder}
+                disabled={
+                  isProcessing || !selectedPaymentMethod || !paymentConfirmed
+                }
+                className={`w-full py-4 rounded-xl font-bold text-xl transition-all duration-300 flex items-center justify-center space-x-3 ${
+                  isProcessing || !selectedPaymentMethod || !paymentConfirmed
+                    ? "bg-gray-600 cursor-not-allowed"
+                    : "bg-emerald-600 hover:bg-emerald-500 text-white hover:shadow-2xl hover:shadow-emerald-500/30 hover:-translate-y-1"
+                }`}
+              >
+                {isProcessing ? (
+                  <>
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                    <span>Processing Payment...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>✅</span>
+                    <span>Confirm & Place Order</span>
+                  </>
+                )}
+              </button>
+
+              <div className="text-center text-gray-400 text-sm">
+                <p>You will receive a confirmation email with order details</p>
               </div>
             </div>
           </div>
